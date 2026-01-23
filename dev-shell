@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -e
+
+# Config
+IMAGE_PREFIX="dev"
+
+usage() {
+    echo "Usage: dev-shell <environment> [directory] [-- extra docker args]"
+    echo ""
+    echo "Environments:"
+    echo "  editor    - neovim with full dev setup"
+    echo "  agent     - agent code AI agent (no .git access)"
+    echo "  runner    - test runner / npm / general shell"
+    echo "  base      - minimal base environment"
+    echo ""
+    echo "Options:"
+    echo "  directory - path to mount as /work (default: current dir)"
+    echo ""
+    echo "Examples:"
+    echo "  dev-shell editor"
+    echo "  dev-shell agent ~/projects/myapp"
+    echo "  dev-shell runner . -- --network=none"
+    exit 1
+}
+
+# Parse args
+ENV="${1:-}"
+DIR="${2:-.}"
+shift 2 2>/dev/null || shift $# 2>/dev/null
+
+# Extra args after --
+EXTRA_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --) shift; EXTRA_ARGS=("$@"); break ;;
+        *) shift ;;
+    esac
+done
+
+[[ -z "$ENV" ]] && usage
+
+# Resolve directory
+DIR="$(cd "$DIR" && pwd)"
+
+IMAGE="${IMAGE_PREFIX}-${ENV}:latest"
+
+# Build base first, then target
+if ! docker image inspect "$IMAGE" &>/dev/null; then
+  echo "Image \"$IMAGE\" does not exist."
+  exit 1
+fi
+
+# Mount options per environment
+MOUNTS="-v $DIR:/work"
+
+case "$ENV" in
+    editor)
+        # Editor gets .git access
+        MOUNTS="-v $DIR:/work"
+        ;;
+    agent)
+        # Agent: project dir but .git read-only
+        if [[ -d "$DIR/.git" ]]; then
+            MOUNTS="-v $DIR:/work -v $DIR/.git:/work/.git:ro"
+        fi
+        ;;
+    runner)
+        # Runner: full access
+        MOUNTS="-v $DIR:/work"
+        ;;
+esac
+
+# Run container
+exec docker run -it --rm \
+    --cap-drop=ALL \
+    --security-opt=no-new-privileges \
+    --network=host \
+    --user "$(id -u):$(id -g)" \
+    $MOUNTS \
+    -w /work \
+    -e "TERM=$TERM" \
+    "${EXTRA_ARGS[@]}" \
+    "$IMAGE"
+
