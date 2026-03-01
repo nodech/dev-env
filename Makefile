@@ -1,23 +1,23 @@
 all:
 	@echo "Makefile needs your attention"
 
-.PHONY: all base editor agent runner clean list
+.PHONY: all system base editor agent runner clean list
 
 PREFIX := dev
+DEBUG :=
+DOCKER_ARGS :=
+
+ifdef DEBUG
+	DOCKER_ARGS += --no-cache --progress=plain
+endif
 
 all: editor agent runner
 
-base:
-	docker build --network=host -t $(PREFIX)-base:latest ./base
+system:
+	docker build --network=host $(DOCKER_ARGS) -t $(PREFIX)-system:latest ./system
 
-editor: base
-	docker build --network=host -t $(PREFIX)-editor:latest ./editor
-
-agent: base
-	docker build --network=host -t $(PREFIX)-agent:latest ./agent
-
-runner: base
-	docker build --network=host -t $(PREFIX)-runner:latest ./runner
+base: system
+	docker build --network=host $(DOCKER_ARGS) -t $(PREFIX)-base:latest ./base
 
 clean:
 	docker rmi -f $(PREFIX)-editor:latest $(PREFIX)-agent:latest $(PREFIX)-runner:latest $(PREFIX)-base:latest 2>/dev/null || true

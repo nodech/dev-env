@@ -1,37 +1,21 @@
-FROM archlinux:latest
-
-# Core system setup
-RUN pacman -Syu --noconfirm && \
-    pacman -S --noconfirm \
-      base-devel \
-      git \
-      zsh \
-      neovim \
-      tmux \
-      ripgrep \
-      fd \
-      fzf \
-      curl \
-      wget \
-      openssh \
-      && pacman -Scc --noconfirm
-
-# Create dev user matching typical host UID (overridable at runtime)
-ARG UID=1000
-ARG GID=1000
-RUN groupadd -g $GID dev && \
-    useradd -m -u $UID -g $GID -s /bin/zsh dev
-
-# Dotfiles setup (replace with your repo)
-ARG DOTFILES_REPO=https://github.com/USER/dotfiles.git
-RUN git clone --depth 1 $DOTFILES_REPO /home/dev/.dotfiles || true
+FROM dev-system:latest
 
 USER dev
-WORKDIR /work
 
-RUN cd /home/nd/dev/nodech/dotfiles && \
-    [ -f install.sh ] && sh install.sh || true
+# Install nightly nvim for nvim12.
+RUN cd $HOME && curl -L https://github.com/neovim/neovim/releases/download/nightly/nvim-linux-x86_64.tar.gz -O
+RUN cd $HOME && tar xzf $HOME/nvim-linux-x86_64.tar.gz && rm $HOME/nvim-linux-x86_64.tar.gz
 
-ENV TERM=screen-256color
+ENV PATH="$HOME/nvim-linux-x86_64/bin:$PATH"
 
-CMD ["/bin/zsh"]
+RUN git clone https://github.com/nodech/dotfiles /home/dev/dotfiles/
+
+RUN mkdir -p /home/dev/.config/nvim
+RUN cd /home/dev/dotfiles && make zsh
+RUN cd /home/dev/dotfiles && make config
+# RUN cd /home/dev/dotfiles && make nvim12
+
+# RUN ~/.bin/chcolor.sh ayu-mirage
+
+# RUN nvim --headless -c "call packager#install({ 'on_finish': 'quitall' })"
+# RUN nvim --headless -c "PackagerInstall {'on_finish': 'quitall' }"
