@@ -1,0 +1,5 @@
+FROM dev-base:latest
+
+RUN npm install -g @openai/codex
+RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g opencode-ai

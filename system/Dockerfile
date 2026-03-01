@@ -15,11 +15,13 @@ RUN pacman -Syu --noconfirm && \
     pacman -S --noconfirm \
       base-devel \
       bat \
+      bun \
       ccache \
       curl \
       fd \
       fzf \
       git \
+      git-delta \
       harper \
       htop \
       jq \
@@ -45,15 +47,14 @@ RUN pacman -Syu --noconfirm && \
       && pacman -Scc --noconfirm
 
 # Create dev user matching typical host UID (overridable at runtime)
-ARG UID=1000
-ARG GID=1000
-RUN groupadd -g $GID dev && \
-    useradd -m -u $UID -g $GID -s /bin/zsh dev
-
 RUN npm i -g neovim
-RUN mkdir /.TRASH && chown dev:dev /.TRASH
+RUN mkdir /.TRASH
+RUN chsh -s /bin/zsh root
 
-USER dev
+# Setup rust
+RUN rustup default stable
+RUN rustup install nightly
+
 WORKDIR /work
 
 ENV TERM=screen-256color

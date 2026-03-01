@@ -1,21 +1,17 @@
 FROM dev-system:latest
 
-USER dev
-
 # Install nightly nvim for nvim12.
 RUN cd $HOME && curl -L https://github.com/neovim/neovim/releases/download/nightly/nvim-linux-x86_64.tar.gz -O
 RUN cd $HOME && tar xzf $HOME/nvim-linux-x86_64.tar.gz && rm $HOME/nvim-linux-x86_64.tar.gz
+RUN mkdir $HOME/.bin && ln -s $HOME/nvim-linux-x86_64/bin/nvim $HOME/.bin/nvim
 
-ENV PATH="$HOME/nvim-linux-x86_64/bin:$PATH"
+# Setup dotfiles
+RUN git clone https://github.com/nodech/dotfiles $HOME/dotfiles/
+RUN mkdir -p $HOME/.config
+RUN cd $HOME/dotfiles && make zsh
+RUN cd $HOME/dotfiles && make config
+RUN cd $HOME/dotfiles && make nvim
 
-RUN git clone https://github.com/nodech/dotfiles /home/dev/dotfiles/
-
-RUN mkdir -p /home/dev/.config/nvim
-RUN cd /home/dev/dotfiles && make zsh
-RUN cd /home/dev/dotfiles && make config
-# RUN cd /home/dev/dotfiles && make nvim12
-
-# RUN ~/.bin/chcolor.sh ayu-mirage
-
-# RUN nvim --headless -c "call packager#install({ 'on_finish': 'quitall' })"
-# RUN nvim --headless -c "PackagerInstall {'on_finish': 'quitall' }"
+# Setup neovim
+RUN $HOME/nvim-linux-x86_64/bin/nvim --headless -c 'qall'
+RUN cd $HOME/.local/share/nvim/site/pack/core/opt/blink.cmp && cargo build --release
