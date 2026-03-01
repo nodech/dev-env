@@ -1,4 +1,4 @@
-FROM dev-base:latest
+FROM dev-runtime:latest
 
 RUN npm install -g @openai/codex
 RUN npm install -g @anthropic-ai/claude-code

@@ -1,7 +1,4 @@
-all:
-	@echo "Makefile needs your attention"
-
-.PHONY: all system base base-only agent agent-only clean list
+.PHONY: all core runtime runtime-only agent agent-only clean list
 
 PREFIX := dev
 DEBUG :=
@@ -11,26 +8,33 @@ ifdef DEBUG
 	DOCKER_ARGS += --no-cache --progress=plain
 endif
 
-all: editor agent runner
+all: agent
 
-system:
-	docker build --network=host $(DOCKER_ARGS) -t $(PREFIX)-system:latest ./system
+core:
+	docker build --network=host $(DOCKER_ARGS) \
+		-t $(PREFIX)-core:latest \
+		-f ./images/Dockerfile.core \
+		.
 
-base: system base-only
-base-only:
-	docker build --network=host $(DOCKER_ARGS) -t $(PREFIX)-base:latest ./base
+runtime: core runtime-only
+runtime-only:
+	docker build --network=host $(DOCKER_ARGS) \
+		-t $(PREFIX)-runtime:latest \
+		-f ./images/Dockerfile.runtime \
+		.
 
-agent: base agent-only
+agent: runtime agent-only
 agent-only:
-	docker build --network=host $(DOCKER_ARGS) -t $(PREFIX)-agent:latest ./agent
+	docker build --network=host $(DOCKER_ARGS) \
+		-t $(PREFIX)-agent:latest \
+		-f ./images/Dockerfile.agent \
+		.
 
 clean:
 	docker rmi -f \
-		$(PREFIX)-system:latest \
-		$(PREFIX)-base:latest \
-		$(PREFIX)-editor:latest \
+		$(PREFIX)-core:latest \
+		$(PREFIX)-runtime:latest \
 		$(PREFIX)-agent:latest \
-		$(PREFIX)-runner:latest \
 		2>/dev/null || true
 
 list:

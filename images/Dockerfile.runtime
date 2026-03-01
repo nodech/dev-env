@@ -1,4 +1,4 @@
-FROM dev-system:latest
+FROM dev-core:latest
 
 # Install nightly nvim for nvim12.
 RUN cd $HOME && curl -L https://github.com/neovim/neovim/releases/download/nightly/nvim-linux-x86_64.tar.gz -O
