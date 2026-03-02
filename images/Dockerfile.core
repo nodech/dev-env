@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 FROM archlinux:latest
 
 ARG CFG_LOCALEGEN="en_US.UTF-8 UTF-8\nka_GE.UTF-8 UTF-8"
@@ -22,7 +23,6 @@ RUN pacman -Syu --noconfirm && \
       fzf \
       git \
       git-delta \
-      harper \
       htop \
       jq \
       lsd \
@@ -46,21 +46,38 @@ RUN pacman -Syu --noconfirm && \
       zsh \
       && pacman -Scc --noconfirm
 
-# Create dev user matching typical host UID (overridable at runtime)
+# Install language servers (Rust bellow)
+RUN <<'EOF' bash
+pkgs=(
+  # Grammer
+  harper
+
+  # python
+  pyright
+
+  # bash
+  bash-language-server
+
+  # lua
+  stylua
+  lua-language-server
+
+  # typescript
+  typescript-language-server
+)
+
+pacman -S --noconfirm "${pkgs[@]}"
+
+EOF
+
 RUN npm i -g neovim
 RUN mkdir /.TRASH
 RUN chsh -s /bin/zsh root
 
 # Setup rust
 RUN rustup default stable
+RUN rustup component add rust-analyzer
+
 RUN rustup install nightly
 
-LABEL project="nodech-env"
-LABEL type="core"
-
-WORKDIR /work
-
-ENV TERM=screen-256color
-
-SHELL ["/bin/zsh", "-c"]
-CMD ["/bin/zsh"]
+LABEL project="nodech-dev"

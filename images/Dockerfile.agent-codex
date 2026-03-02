@@ -1,5 +1,0 @@
-FROM dev-runtime:latest
-
-LABEL type="agent"
-
-RUN npm install -g @openai/codex
