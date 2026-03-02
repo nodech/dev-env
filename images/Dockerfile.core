@@ -55,10 +55,12 @@ RUN chsh -s /bin/zsh root
 RUN rustup default stable
 RUN rustup install nightly
 
+LABEL project="nodech-env"
+LABEL type="core"
+
 WORKDIR /work
 
 ENV TERM=screen-256color
 
 SHELL ["/bin/zsh", "-c"]
-
 CMD ["/bin/zsh"]

@@ -15,3 +15,9 @@ RUN cd $HOME/dotfiles && make nvim
 # Setup neovim
 RUN $HOME/nvim-linux-x86_64/bin/nvim --headless -c 'qall'
 RUN cd $HOME/.local/share/nvim/site/pack/core/opt/blink.cmp && cargo build --release
+
+# Patch zshrc with custom script
+RUN echo "source $HOME/.zshrc.docker" >> $HOME/.zshrc
+COPY zshrc.docker /root/.zshrc.docker
+
+LABEL type="runtime"
