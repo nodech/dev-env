@@ -1,0 +1,6 @@
+
+
+if [[ "$DOCKER_THEME" != "" ]]
+then
+  chcolor.sh $DOCKER_THEME
+fi

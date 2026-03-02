@@ -1,84 +1,199 @@
-#!/usr/bin/env bash
-set -e
+#!/usr/bin/env python3
 
-# Config
-IMAGE_PREFIX="dev"
+from __future__ import annotations
 
-usage() {
-    echo "Usage: dev-shell <environment> [directory] [-- extra docker args]"
-    echo ""
-    echo "Environments:"
-    echo "  editor    - neovim with full dev setup"
-    echo "  agent     - agent code AI agent (no .git access)"
-    echo "  runner    - test runner / npm / general shell"
-    echo "  base      - minimal base environment"
-    echo ""
-    echo "Options:"
-    echo "  directory - path to mount as /work (default: current dir)"
-    echo ""
-    echo "Examples:"
-    echo "  dev-shell editor"
-    echo "  dev-shell agent ~/projects/myapp"
-    echo "  dev-shell runner . -- --network=none"
-    exit 1
-}
+import argparse
+import os
+import sys
+import subprocess
+import atexit
 
-# Parse args
-ENV="${1:-}"
-DIR="${2:-.}"
-shift 2 2>/dev/null || shift $# 2>/dev/null
+from dataclasses import dataclass, field
+from pathlib import Path
+from enum import Enum
 
-# Extra args after --
-EXTRA_ARGS=()
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --) shift; EXTRA_ARGS=("$@"); break ;;
-        *) shift ;;
-    esac
-done
+PROG_NAME="dev-shell"
 
-[[ -z "$ENV" ]] && usage
+IMAGE_PREFIX = os.environ.get("DEV_SHELL_PREFIX", "dev")
 
-# Resolve directory
-DIR="$(cd "$DIR" && pwd)"
+THEME_VARS = [
+    "TMUX_THEME_BG", "TMUX_THEME_FG", "TMUX_THEME_GREEN", "TMUX_THEME_YELLOW",
+    "TMUX_THEME_RED", "TMUX_THEME_BLUE", "TMUX_THEME_ACCENT", "TMUX_THEME_SURFACE0",
+    "TMUX_THEME_SURFACE1", "TMUX_THEME_OVERLAY0", "TMUX_THEME_LAVENDER",
+    "BAT_THEME", "DELTA_FEATURES",
+]
 
-IMAGE="${IMAGE_PREFIX}-${ENV}:latest"
+SYSFS_MASKS = [
+    "/sys/class/power_supply",
+    "/sys/class/thermal",
+    "/sys/class/dmi",
+    "/sys/devices/virtual/dmi",
+]
 
-# Build base first, then target
-if ! docker image inspect "$IMAGE" &>/dev/null; then
-  echo "Image \"$IMAGE\" does not exist."
-  exit 1
-fi
+DEFAULT_CAPS = [
+    "ALL",
+    "NET_BIND_SERVICE",
+    # "SYS_PTRACE",
+    # "NET_RAW",
+    "KILL"
+]
 
-# Mount options per environment
-MOUNTS="-v $DIR:/work"
+def log(msg: str) -> None:
+    print(f"[{PROG_NAME}] {msg}", flush=True)
 
-case "$ENV" in
-    editor)
-        # Editor gets .git access
-        MOUNTS="-v $DIR:/work"
-        ;;
-    agent)
-        # Agent: project dir but .git read-only
-        if [[ -d "$DIR/.git" ]]; then
-            MOUNTS="-v $DIR:/work -v $DIR/.git:/work/.git:ro"
-        fi
-        ;;
-    runner)
-        # Runner: full access
-        MOUNTS="-v $DIR:/work"
-        ;;
-esac
 
-# Run container
-exec docker run -it --rm \
-    --cap-drop=ALL \
-    --security-opt=no-new-privileges \
-    --network=host \
-    --user "$(id -u):$(id -g)" \
-    $MOUNTS \
-    -w /work \
-    -e "TERM=$TERM" \
-    "${EXTRA_ARGS[@]}" \
-    "$IMAGE"
+def warn(msg: str) -> None:
+    print(f"[{PROG_NAME}] WARN: {msg}", file=sys.stderr, flush=True)
 
+
+def die(msg: str) -> None:
+    print(f"[{PROG_NAME}] ERROR: {msg}", file=sys.stderr, flush=True)
+    sys.exit(1)
+
+def capture(cmd: list[str]) -> str | None:
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+class ImageType(Enum):
+    RUNTIME = "runtime"
+    AGENT_CLAUDE = "agent-claude"
+    AGENT_CODEX = "agent-codex"
+    AGENT_OPENCODE = "agent-opencode"
+
+    def __str__(self) -> str:
+        return self.value
+
+    @property
+    def name(self) -> str:
+        return f"{IMAGE_PREFIX}-{self.value}"
+
+@dataclass
+class GeneralOptions:
+    pass_theme: bool = True
+
+@dataclass
+class RunOptions:
+    image_type: ImageType = ImageType.RUNTIME
+    source_dir: Path = field(default_factory=Path.cwd)
+
+@dataclass
+class DockerCommand:
+    image_name: str
+    labels: list[str] = field(default_factory=lambda: [
+        f"runner={PROG_NAME}"
+    ])
+
+    caps: list[str] = field(default_factory=lambda: list(DEFAULT_CAPS))
+
+    args: list[str] = field(default_factory=lambda: [
+        "--security-opt=no-new-privileges",
+    ])
+
+    env_vars: list[str] = field(default_factory=lambda: [])
+    # mask_list: list[str] = field(default_factory=lambda: list(SYSFS_MASKS))
+
+    def to_cmd(self) -> list[str]:
+        args: list[str] = [
+            "docker",
+            "run",
+            "--rm", # maybe configure this later with atexit cleanups.
+            "-it"
+        ];
+
+        args.extend(self.args)
+
+        # Reset capabilities and add.
+        args.append("--cap-drop=ALL")
+        for cap in self.caps:
+            args.append(f"--cap-add={cap}")
+
+        for label in self.labels:
+            args += ["--label", label]
+
+        for env_var in self.env_vars:
+            args += ["-e", env_var]
+
+        args.append(self.image_name)
+
+        return args
+
+def collect_theme_env_vars() -> list[str]:
+    """ Collect theme vars from TMUX and system active theme"""
+    env_vars: list[str] = []
+    active_theme = capture(["chcolor.sh", "-c"])
+    if active_theme:
+        env_vars.append(f"DOCKER_THEME={active_theme}")
+
+    for env_var in THEME_VARS:
+        value = os.environ.get(env_var)
+        if value:
+            env_vars.append(f"{env_var}={value}")
+
+    return env_vars
+
+def cmd_run(gopts: GeneralOptions, ropts: RunOptions):
+    docker = DockerCommand(image_name=ropts.image_type.name)
+
+    if gopts.pass_theme:
+        docker.env_vars.extend(collect_theme_env_vars())
+
+    print(f"We are running: {docker.to_cmd()}")
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=PROG_NAME,
+        description="Containerized development environment launcher",
+    )
+
+    parser.add_argument(
+        "--no-theme",
+        action="store_true",
+        help="Don't forward theme env vars."
+    )
+
+    sub = parser.add_subparsers(dest="command")
+
+    # dev-shell run
+    p_run = sub.add_parser("run", help="Start a new container session")
+
+    p_run.add_argument(
+        "environment",
+        nargs="?",
+        type=ImageType,
+        choices=list(ImageType),
+        help=f"Environment to launch (default: {ImageType.RUNTIME.value})",
+    )
+
+    p_run.add_argument(
+        "directory",
+        nargs="?",
+        help="Path to mount as /work (default: .)",
+    )
+
+    # g_host = p_run.add_argument_group("host integration")
+
+    return parser
+
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+
+    general_opts = GeneralOptions(pass_theme=not args.no_theme)
+
+    match args.command:
+        case "run":
+            run_opts = RunOptions(
+                image_type=args.environment or ImageType.RUNTIME,
+                source_dir=Path(args.directory) if args.directory else Path.cwd(),
+            )
+
+            cmd_run(general_opts, run_opts)
+        case _:
+            parser.print_help()
+            sys.exit(1)
+
+
+
+if __name__ == "__main__":
+    main()
