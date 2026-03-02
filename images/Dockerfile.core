@@ -12,44 +12,51 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
 # Core system setup
-RUN pacman -Syu --noconfirm && \
-    pacman -S --noconfirm \
-      base-devel \
-      bat \
-      bun \
-      ccache \
-      curl \
-      fd \
-      fzf \
-      git \
-      git-delta \
-      htop \
-      jq \
-      lsd \
-      lua \
-      neovim \
-      nodejs \
-      npm \
-      openssh \
-      python \
-      ripgrep \
-      rsync \
-      rustup \
-      sccache \
-      stow \
-      tmux \
-      tree \
-      tree-sitter \
-      tree-sitter-cli \
-      wl-clipboard \
-      zoxide \
-      zsh \
-      && pacman -Scc --noconfirm
+RUN <<'EOF'
+set -e
+pacman -Syu --noconfirm
 
-# Install language servers (Rust bellow)
+pacman -S --noconfirm \
+  base-devel \
+  bat \
+  bun \
+  ccache \
+  curl \
+  fd \
+  fzf \
+  git \
+  git-delta \
+  htop \
+  jq \
+  lsd \
+  lua \
+  neovim \
+  nodejs \
+  npm \
+  openssh \
+  python \
+  ripgrep \
+  rsync \
+  rustup \
+  sccache \
+  stow \
+  tmux \
+  tree \
+  tree-sitter \
+  tree-sitter-cli \
+  wl-clipboard \
+  zoxide \
+  zsh
+
+pacman -Scc --noconfirm
+EOF
+
+# Install language servers (Rust below)
 RUN <<'EOF' bash
+set -e
+
 pkgs=(
-  # Grammer
+  # grammar
   harper
 
   # python
@@ -67,6 +74,7 @@ pkgs=(
 )
 
 pacman -S --noconfirm "${pkgs[@]}"
+pacman -Scc --noconfirm
 
 EOF
 
@@ -75,9 +83,10 @@ RUN mkdir /.TRASH
 RUN chsh -s /bin/zsh root
 
 # Setup rust
-RUN rustup default stable
-RUN rustup component add rust-analyzer
+RUN <<'EOF'
+set -e
+rustup default stable
+rustup component add rust-analyzer
 
-RUN rustup install nightly
-
-LABEL project="nodech-dev"
+rustup install nightly
+EOF

@@ -9,19 +9,21 @@ ifdef DEBUG
 	DOCKER_ARGS += --no-cache --progress=plain
 endif
 
-all: nodech-env
+all: $(NAME)
 
 core:
 	docker build --network=host $(DOCKER_ARGS) \
 		-t $(PREFIX)-core:latest \
 		-f ./images/Dockerfile.core \
+		--label project=$(NAME)
 		.
 
 $(NAME): core $(NAME)-only
 $(NAME)-only:
 	docker build --network=host $(DOCKER_ARGS) \
-		-t $(PREFIX)-runtime:latest \
+		-t $(PREFIX)-$(NAME):latest \
 		-f ./images/Dockerfile.nodech \
+		--label project=$(NAME)
 		.
 
 clean:

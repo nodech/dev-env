@@ -3,6 +3,7 @@ FROM dev-core:latest
 
 # Install nightly nvim for nvim12.
 RUN <<'EOF'
+set -e
 cd $HOME
 
 curl -L https://github.com/neovim/neovim/releases/download/nightly/nvim-linux-x86_64.tar.gz -O
@@ -14,6 +15,7 @@ EOF
 
 # Setup dotfiles
 RUN <<'EOF'
+set -e
 git clone https://github.com/nodech/dotfiles $HOME/dotfiles/
 
 mkdir -p $HOME/.config
@@ -26,22 +28,27 @@ make nvim
 EOF
 
 # Setup neovim
-RUN $HOME/nvim-linux-x86_64/bin/nvim --headless -c 'qall'
-RUN cd $HOME/.local/share/nvim/site/pack/core/opt/blink.cmp && cargo build --release
+RUN <<'EOF'
+set -e
+$HOME/nvim-linux-x86_64/bin/nvim --headless -c 'qall'
+
+cd $HOME/.local/share/nvim/site/pack/core/opt/blink.cmp
+cargo build --release
+
+EOF
 
 # Patch zshrc with custom script
-RUN echo "source $HOME/.zshrc.docker" >> $HOME/.zshrc
 COPY zshrc.docker /root/.zshrc.docker
+RUN echo "source $HOME/.zshrc.docker" >> $HOME/.zshrc
 
 # Install all the agents
 RUN <<'EOF'
+set -e
 npm install -g @openai/codex
 npm install -g @anthropic-ai/claude-code
 npm install -g opencode-ai
+npm cache clean --force
 EOF
-
-# Final docker setup
-LABEL project="nodech-env"
 
 ENV TERM=screen-256color
 
