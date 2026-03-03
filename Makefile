@@ -1,7 +1,8 @@
 .PHONY: all core nodech-env runtime-only clean list
 
 PREFIX := dev
-NAME := nodech-env
+NAME := nodech/dev-env
+LABEL := nodech-env
 DEBUG :=
 DOCKER_ARGS :=
 
@@ -13,23 +14,23 @@ all: $(NAME)
 
 core:
 	docker build --network=host $(DOCKER_ARGS) \
-		-t $(PREFIX)-core:latest \
+		-t nodech/dev-core:latest \
 		-f ./images/Dockerfile.core \
-		--label project=$(NAME)
+		--label project=$(LABEL) \
 		.
 
 $(NAME): core $(NAME)-only
 $(NAME)-only:
 	docker build --network=host $(DOCKER_ARGS) \
-		-t $(PREFIX)-$(NAME):latest \
+		-t nodech/dev-env:latest \
 		-f ./images/Dockerfile.nodech \
-		--label project=$(NAME)
+		--label project=$(LABEL) \
 		.
 
 clean:
 	docker rmi -f \
-		$$(docker images --filter="label=project=$(NAME)" -q) \
+		$$(docker images --filter="label=project=$(LABEL)" -q) \
 		2> /dev/null
 
 list:
-	@docker images --filter="label=project=$(NAME)"
+	@docker images --filter="label=project=$(LABEL)"

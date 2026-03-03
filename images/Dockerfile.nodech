@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM dev-core:latest
+FROM nodech/dev-core:latest
 
 # Install nightly nvim for nvim12.
 RUN <<'EOF'
