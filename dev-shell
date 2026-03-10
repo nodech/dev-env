@@ -442,7 +442,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Where to mount root inside the container",
     )
 
-    p_run.add_argument("--no-gpg", action="store_true", help="Don't mount gpg socket.")
+    p_run.add_argument("--no-gpg", action="store_true", help="Don't mount gpg socket")
+    p_run.add_argument("--no-pass", action="store_true", help="Don't mount pass store")
 
     # dev-shell attach
     # p_attach = sub.add_parser(
@@ -512,6 +513,7 @@ def main():
                 check_git=not args.ignore_git_check,
                 pass_theme=not args.no_theme,
                 pass_gpg=not args.no_gpg,
+                pass_passstore=not args.no_pass,
             )
 
             cmd_run(run_opts)
