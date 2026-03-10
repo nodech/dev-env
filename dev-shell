@@ -6,7 +6,6 @@ import argparse
 import os
 import sys
 import subprocess
-import atexit
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -94,11 +93,6 @@ def normalize_mounts(paths: list[Path]) -> list[Path]:
 
 
 @dataclass
-class GeneralOptions:
-    pass_theme: bool = True
-
-
-@dataclass
 class MountOptions:
     root: Path
     target: Path
@@ -109,7 +103,7 @@ class MountOptions:
         if mount_git:
             self.mount_directories.append(ROOT_GIT)
 
-        if write_git:
+        if mount_git and write_git:
             self.write_directories.add(ROOT_GIT)
 
 
@@ -119,6 +113,7 @@ class RunOptions:
     project_dir: Path
     check_git: bool = True
     name: str | None = None
+    pass_theme: bool = True
 
 
 @dataclass
@@ -210,6 +205,10 @@ class ListOptions:
     quiet: bool
     all: bool
 
+@dataclass
+class AttachOptions:
+    project_root: Path
+    name: str | None
 
 @dataclass
 class DockerListCommand:
@@ -251,24 +250,24 @@ def collect_theme_env_vars() -> list[str]:
     return env_vars
 
 
-def cmd_run(gopts: GeneralOptions, ropts: RunOptions):
+def cmd_run(opts: RunOptions):
     docker = DockerRunCommand(
-        name=ropts.name,
-        project_root=ropts.mount_opts.root,
-        remote_dest=ropts.mount_opts.target,
+        name=opts.name,
+        project_root=opts.mount_opts.root,
+        remote_dest=opts.mount_opts.target,
     )
 
-    if ropts.check_git and not (ropts.mount_opts.root / ".git").exists():
-        die(f"Git directory not found in {ropts.mount_opts.root}")
+    if opts.check_git and not (opts.mount_opts.root / ".git").exists():
+        die(f"Git directory not found in {opts.mount_opts.root}")
 
-    if gopts.pass_theme:
+    if opts.pass_theme:
         docker.env_vars.extend(collect_theme_env_vars())
 
     docker.labels.append(f"project-root={docker.project_root}")
 
-    mounts = normalize_mounts(ropts.mount_opts.mount_directories)
+    mounts = normalize_mounts(opts.mount_opts.mount_directories)
     docker.mounts.extend(
-        map(lambda p: MountDir(p, p in ropts.mount_opts.write_directories), mounts)
+        map(lambda p: MountDir(p, p in opts.mount_opts.write_directories), mounts)
     )
 
     exec_replace(docker.to_cmd())
@@ -370,6 +369,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Where to mount root inside the container",
     )
 
+    p_run.add_argument(
+        "--no-gpg",
+        action="store_true",
+        help="Don't mount gpg socket."
+    )
+
     # dev-shell attach
     # p_attach = sub.add_parser(
     #     "attach",
@@ -412,8 +417,6 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
 
-    general_opts = GeneralOptions(pass_theme=not args.no_theme)
-
     match args.command:
         case "run":
             mount = args.mount or [ROOT]
@@ -438,9 +441,10 @@ def main():
                 name=args.name or None,
                 mount_opts=mount_opts,
                 check_git=not args.ignore_git_check,
+                pass_theme=not args.no_theme,
             )
 
-            cmd_run(general_opts, run_opts)
+            cmd_run(run_opts)
         # case "attach":
         # attach_options =
         case "list":
