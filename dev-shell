@@ -51,6 +51,10 @@ ROOT = Path.cwd().resolve()
 ROOT_GIT = (ROOT / ".git").resolve()
 
 DEFAULT_DEST = "/work"
+HOME_DEST = Path("/root")
+GNUPG_DEST = HOME_DEST / ".gnupg"
+GNUPG_PUBRING = GNUPG_DEST / "pubring.kbx"
+PASS_DEST = HOME_DEST / ".password-store"
 
 
 def debuglog(msg: str) -> None:
@@ -114,11 +118,14 @@ class RunOptions:
     check_git: bool = True
     name: str | None = None
     pass_theme: bool = True
+    pass_gpg: bool = True
+    pass_passstore: bool = True
 
 
 @dataclass
 class MountDir:
-    path: Path
+    local_path: Path
+    remote_path: Path
     write: bool = False
 
 
@@ -133,7 +140,7 @@ class DockerRunLimits:
 class DockerRunCommand:
     name: str | None
     project_root: Path
-    remote_dest: Path
+    remote_root: Path
 
     limits: DockerRunLimits = field(default_factory=lambda: DockerRunLimits())
 
@@ -178,12 +185,8 @@ class DockerRunCommand:
 
         for mount in self.mounts:
             mount_args: list[str] = ["type=bind"]
-
-            relative_path = mount.path.relative_to(self.project_root)
-            dest = self.remote_dest / relative_path
-
-            mount_args.append(f"source={mount.path}")
-            mount_args.append(f"destination={dest}")
+            mount_args.append(f"source={mount.local_path}")
+            mount_args.append(f"destination={mount.remote_path}")
 
             if not mount.write:
                 mount_args.append("readonly")
@@ -205,10 +208,12 @@ class ListOptions:
     quiet: bool
     all: bool
 
+
 @dataclass
 class AttachOptions:
     project_root: Path
     name: str | None
+
 
 @dataclass
 class DockerListCommand:
@@ -250,11 +255,20 @@ def collect_theme_env_vars() -> list[str]:
     return env_vars
 
 
+def mount_to_mount(
+    project_root: Path, remote_root: Path, path: Path, write: bool
+) -> MountDir:
+    relative = path.relative_to(project_root)
+    dest = remote_root / relative
+
+    return MountDir(local_path=path, remote_path=dest, write=write)
+
+
 def cmd_run(opts: RunOptions):
     docker = DockerRunCommand(
         name=opts.name,
         project_root=opts.mount_opts.root,
-        remote_dest=opts.mount_opts.target,
+        remote_root=opts.mount_opts.target,
     )
 
     if opts.check_git and not (opts.mount_opts.root / ".git").exists():
@@ -263,11 +277,70 @@ def cmd_run(opts: RunOptions):
     if opts.pass_theme:
         docker.env_vars.extend(collect_theme_env_vars())
 
+    if opts.pass_gpg:
+        gpg_socket = capture(["gpgconf", "--list-dir", "agent-extra-socket"])
+        gpg_home = capture(["gpgconf", "--list-dir", "homedir"])
+
+        if gpg_socket is None:
+            die("Could not find gpg socket.")
+
+        if gpg_home is None:
+            die("Could not find gpg home.")
+
+        assert gpg_socket is not None
+        assert gpg_home is not None
+
+        docker.mounts.append(
+            MountDir(
+                local_path=Path(gpg_home) / "pubring.kbx",
+                remote_path=GNUPG_PUBRING,
+                write=False,
+            )
+        )
+
+        docker.mounts.append(
+            MountDir(
+                local_path=Path(gpg_socket),
+                remote_path=GNUPG_DEST / "S.gpg-agent",
+                write=False,
+            )
+        )
+
+        docker.env_vars.append(f"GNUPGHOME={GNUPG_DEST}")
+
+    if opts.pass_passstore:
+        pass_home: Path | None = None
+        try:
+            pass_home = Path(os.environ["HOME"]).resolve() / ".password-store"
+        except:
+            die(f"Could not get $HOME.")
+
+        assert pass_home is not None
+
+        if not pass_home.exists():
+            die("Can't mount the pass store, it does not exist.")
+
+        docker.mounts.append(
+            MountDir(
+                local_path=pass_home,
+                remote_path=PASS_DEST,
+                write=False,
+            )
+        )
+
     docker.labels.append(f"project-root={docker.project_root}")
 
     mounts = normalize_mounts(opts.mount_opts.mount_directories)
     docker.mounts.extend(
-        map(lambda p: MountDir(p, p in opts.mount_opts.write_directories), mounts)
+        map(
+            lambda p: mount_to_mount(
+                docker.project_root,
+                docker.remote_root,
+                p,
+                p in opts.mount_opts.write_directories,
+            ),
+            mounts,
+        )
     )
 
     exec_replace(docker.to_cmd())
@@ -369,11 +442,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Where to mount root inside the container",
     )
 
-    p_run.add_argument(
-        "--no-gpg",
-        action="store_true",
-        help="Don't mount gpg socket."
-    )
+    p_run.add_argument("--no-gpg", action="store_true", help="Don't mount gpg socket.")
 
     # dev-shell attach
     # p_attach = sub.add_parser(
@@ -442,6 +511,7 @@ def main():
                 mount_opts=mount_opts,
                 check_git=not args.ignore_git_check,
                 pass_theme=not args.no_theme,
+                pass_gpg=not args.no_gpg,
             )
 
             cmd_run(run_opts)

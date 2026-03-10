@@ -1,16 +1,6 @@
 # syntax=docker/dockerfile:1.4
 FROM archlinux:latest
 
-ARG CFG_LOCALEGEN="en_US.UTF-8 UTF-8\nka_GE.UTF-8 UTF-8"
-ARG CFG_LOCALE="LANG=en_US.UTF-8"
-
-RUN echo -e "$CFG_LOCALEGEN" >> /etc/locale.gen \
-    && locale-gen \
-    && echo "$CFG_LOCALE" > /etc/locale.conf
-
-ENV LANG=en_US.UTF-8
-ENV LC_ALL=en_US.UTF-8
-
 # Core system setup
 RUN <<'EOF'
 set -e
@@ -34,6 +24,7 @@ pacman -S --noconfirm \
   nodejs \
   npm \
   openssh \
+  pass \
   python \
   ripgrep \
   rsync \
@@ -78,10 +69,6 @@ pacman -Scc --noconfirm
 
 EOF
 
-RUN npm i -g neovim
-RUN mkdir /.TRASH
-RUN chsh -s /bin/zsh root
-
 # Setup rust
 RUN <<'EOF'
 set -e
@@ -89,4 +76,25 @@ rustup default stable
 rustup component add rust-analyzer
 
 rustup install nightly
+EOF
+
+
+ARG CFG_LOCALEGEN="en_US.UTF-8 UTF-8\nka_GE.UTF-8 UTF-8"
+ARG CFG_LOCALE="LANG=en_US.UTF-8"
+
+RUN echo -e "$CFG_LOCALEGEN" >> /etc/locale.gen \
+    && locale-gen \
+    && echo "$CFG_LOCALE" > /etc/locale.conf
+
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
+RUN npm i -g neovim
+
+RUN <<'EOF'
+  mkdir ~/.TRASH
+
+  chsh -s /bin/zsh root
+  mkdir -p $HOME/.gnupg
+  chmod 700 $HOME/.gnupg
 EOF
