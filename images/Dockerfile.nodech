@@ -1,6 +1,15 @@
 # syntax=docker/dockerfile:1.4
 FROM nodech/dev-core:latest
 
+# Install all the agents
+RUN <<'EOF'
+set -e
+npm install -g @openai/codex
+npm install -g @anthropic-ai/claude-code
+npm install -g opencode-ai
+npm cache clean --force
+EOF
+
 # Install nightly nvim for nvim12.
 RUN <<'EOF'
 set -e
@@ -38,17 +47,8 @@ cargo build --release
 EOF
 
 # Patch zshrc with custom script
-COPY zshrc.docker /root/.zshrc.docker
-RUN echo "source $HOME/.zshrc.docker" >> $HOME/.zshrc
-
-# Install all the agents
-RUN <<'EOF'
-set -e
-npm install -g @openai/codex
-npm install -g @anthropic-ai/claude-code
-npm install -g opencode-ai
-npm cache clean --force
-EOF
+COPY zshrc.docker /root/.zshrc.docker.init
+RUN echo "source $HOME/.zshrc.docker.init" >> $HOME/.zshrc
 
 ENV TERM=screen-256color
 
