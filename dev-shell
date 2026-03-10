@@ -10,17 +10,25 @@ import atexit
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from enum import Enum
 
-PROG_NAME="dev-shell"
-
-IMAGE_PREFIX = os.environ.get("DEV_SHELL_PREFIX", "dev")
+PROG_NAME = "dev-shell"
+DEFAULT_IMAGE_NAME = "nodech/dev-env"
+IMAGE_NAME = os.environ.get("DOCKER_IMAGE") or DEFAULT_IMAGE_NAME
 
 THEME_VARS = [
-    "TMUX_THEME_BG", "TMUX_THEME_FG", "TMUX_THEME_GREEN", "TMUX_THEME_YELLOW",
-    "TMUX_THEME_RED", "TMUX_THEME_BLUE", "TMUX_THEME_ACCENT", "TMUX_THEME_SURFACE0",
-    "TMUX_THEME_SURFACE1", "TMUX_THEME_OVERLAY0", "TMUX_THEME_LAVENDER",
-    "BAT_THEME", "DELTA_FEATURES",
+    "TMUX_THEME_BG",
+    "TMUX_THEME_FG",
+    "TMUX_THEME_GREEN",
+    "TMUX_THEME_YELLOW",
+    "TMUX_THEME_RED",
+    "TMUX_THEME_BLUE",
+    "TMUX_THEME_ACCENT",
+    "TMUX_THEME_SURFACE0",
+    "TMUX_THEME_SURFACE1",
+    "TMUX_THEME_OVERLAY0",
+    "TMUX_THEME_LAVENDER",
+    "BAT_THEME",
+    "DELTA_FEATURES",
 ]
 
 SYSFS_MASKS = [
@@ -31,15 +39,24 @@ SYSFS_MASKS = [
 ]
 
 DEFAULT_CAPS = [
-    "ALL",
     "NET_BIND_SERVICE",
     # "SYS_PTRACE",
     # "NET_RAW",
-    "KILL"
+    "KILL",
 ]
 
-def log(msg: str) -> None:
-    print(f"[{PROG_NAME}] {msg}", flush=True)
+DEBUG = os.environ.get("DEBUG") == "1"
+DEBUG_NO_EXEC = os.environ.get("DEBUG_NO_EXEC") == "1"
+
+ROOT = Path.cwd().resolve()
+ROOT_GIT = (ROOT / ".git").resolve()
+
+DEFAULT_DEST = "/work"
+
+
+def debuglog(msg: str) -> None:
+    if DEBUG:
+        print(f"[{PROG_NAME}] {msg}", flush=True)
 
 
 def warn(msg: str) -> None:
@@ -50,75 +67,177 @@ def die(msg: str) -> None:
     print(f"[{PROG_NAME}] ERROR: {msg}", file=sys.stderr, flush=True)
     sys.exit(1)
 
+
 def capture(cmd: list[str]) -> str | None:
     r = subprocess.run(cmd, capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else None
 
-class ImageType(Enum):
-    RUNTIME = "runtime"
-    AGENT_CLAUDE = "agent-claude"
-    AGENT_CODEX = "agent-codex"
-    AGENT_OPENCODE = "agent-opencode"
 
-    def __str__(self) -> str:
-        return self.value
+def exec_replace(cmd: list[str]):
+    debuglog(f"Running: {cmd}")
 
-    @property
-    def name(self) -> str:
-        return f"{IMAGE_PREFIX}-{self.value}"
+    if not DEBUG_NO_EXEC:
+        os.execvp(cmd[0], cmd)
+
+
+def normalize_mounts(paths: list[Path]) -> list[Path]:
+    seen: set[Path] = set()
+    result: list[Path] = []
+
+    for p in paths:
+        if p not in seen:
+            seen.add(p)
+            result.append(p)
+
+    result.sort(key=lambda p: (len(p.parts), str(p)))
+    return result
+
 
 @dataclass
 class GeneralOptions:
     pass_theme: bool = True
 
-@dataclass
-class RunOptions:
-    image_type: ImageType = ImageType.RUNTIME
-    source_dir: Path = field(default_factory=Path.cwd)
 
 @dataclass
-class DockerCommand:
-    image_name: str
-    labels: list[str] = field(default_factory=lambda: [
-        f"runner={PROG_NAME}"
-    ])
+class MountOptions:
+    root: Path
+    target: Path
+    mount_directories: list[Path]
+    write_directories: set[Path]
+
+    def add_git(self, mount_git, write_git):
+        if mount_git:
+            self.mount_directories.append(ROOT_GIT)
+
+        if write_git:
+            self.write_directories.add(ROOT_GIT)
+
+
+@dataclass
+class RunOptions:
+    mount_opts: MountOptions
+    project_dir: Path
+    check_git: bool = True
+    name: str | None = None
+
+
+@dataclass
+class MountDir:
+    path: Path
+    write: bool = False
+
+
+@dataclass
+class DockerRunLimits:
+    cpus: int | None = None
+    ram: int | None = None
+    pids: int | None = 256
+
+
+@dataclass
+class DockerRunCommand:
+    name: str | None
+    project_root: Path
+    remote_dest: Path
+
+    limits: DockerRunLimits = field(default_factory=lambda: DockerRunLimits())
+
+    labels: list[str] = field(default_factory=lambda: [f"runner={PROG_NAME}"])
 
     caps: list[str] = field(default_factory=lambda: list(DEFAULT_CAPS))
 
-    args: list[str] = field(default_factory=lambda: [
-        "--security-opt=no-new-privileges",
-    ])
+    args: list[str] = field(
+        default_factory=lambda: [
+            "--security-opt=no-new-privileges",
+        ]
+    )
 
     env_vars: list[str] = field(default_factory=lambda: [])
     # mask_list: list[str] = field(default_factory=lambda: list(SYSFS_MASKS))
 
+    mounts: list[MountDir] = field(default_factory=lambda: [])
+
     def to_cmd(self) -> list[str]:
-        args: list[str] = [
-            "docker",
-            "run",
-            "--rm", # maybe configure this later with atexit cleanups.
-            "-it"
-        ];
+        args: list[str] = ["docker", "run", "--rm", "-it"]
 
         args.extend(self.args)
 
-        # Reset capabilities and add.
         args.append("--cap-drop=ALL")
         for cap in self.caps:
             args.append(f"--cap-add={cap}")
 
-        for label in self.labels:
-            args += ["--label", label]
+        if self.limits.cpus is not None:
+            args.append(f"--cpus={self.limits.cpus}")
+
+        if self.limits.ram is not None:
+            args.append(f"--memory={self.limits.ram}")
+
+        if self.limits.pids is not None:
+            args.append(f"--pids-limit={self.limits.pids}")
 
         for env_var in self.env_vars:
-            args += ["-e", env_var]
+            args.extend(["-e", env_var])
 
-        args.append(self.image_name)
+        for label in self.labels:
+            args.extend(["--label", label])
+
+        for mount in self.mounts:
+            mount_args: list[str] = ["type=bind"]
+
+            relative_path = mount.path.relative_to(self.project_root)
+            dest = self.remote_dest / relative_path
+
+            mount_args.append(f"source={mount.path}")
+            mount_args.append(f"destination={dest}")
+
+            if not mount.write:
+                mount_args.append("readonly")
+
+            args.extend(["--mount", ",".join(mount_args)])
+
+        if self.name is not None:
+            args.append(f"--name={self.name}")
+
+        args.append(IMAGE_NAME)
 
         return args
 
+
+@dataclass
+class ListOptions:
+    project_root: Path
+    format: str | None
+    quiet: bool
+    all: bool
+
+
+@dataclass
+class DockerListCommand:
+    project_root: Path | None
+    format: str | None
+    quiet: bool
+    all: bool
+
+    def to_cmd(self) -> list[str]:
+        args: list[str] = ["docker", "ps"]
+
+        args.extend(["--filter", f"label=runner={PROG_NAME}"])
+
+        if self.project_root is not None:
+            args.extend(["--filter", f"label=project-root={self.project_root}"])
+
+        args.append("--all")
+
+        if self.format is not None:
+            args.extend(["--format", self.format])
+
+        if self.quiet:
+            args.append("--quiet")
+
+        return args
+
+
 def collect_theme_env_vars() -> list[str]:
-    """ Collect theme vars from TMUX and system active theme"""
     env_vars: list[str] = []
     active_theme = capture(["chcolor.sh", "-c"])
     if active_theme:
@@ -131,13 +250,61 @@ def collect_theme_env_vars() -> list[str]:
 
     return env_vars
 
+
 def cmd_run(gopts: GeneralOptions, ropts: RunOptions):
-    docker = DockerCommand(image_name=ropts.image_type.name)
+    docker = DockerRunCommand(
+        name=ropts.name,
+        project_root=ropts.mount_opts.root,
+        remote_dest=ropts.mount_opts.target,
+    )
+
+    if ropts.check_git and not (ropts.mount_opts.root / ".git").exists():
+        die(f"Git directory not found in {ropts.mount_opts.root}")
 
     if gopts.pass_theme:
         docker.env_vars.extend(collect_theme_env_vars())
 
-    print(f"We are running: {docker.to_cmd()}")
+    docker.labels.append(f"project-root={docker.project_root}")
+
+    mounts = normalize_mounts(ropts.mount_opts.mount_directories)
+    docker.mounts.extend(
+        map(lambda p: MountDir(p, p in ropts.mount_opts.write_directories), mounts)
+    )
+
+    exec_replace(docker.to_cmd())
+
+
+def cmd_list(list_opts: ListOptions):
+    docker = DockerListCommand(
+        project_root=list_opts.project_root if not list_opts.all else None,
+        format=list_opts.format,
+        quiet=list_opts.quiet,
+        all=list_opts.all,
+    )
+
+    exec_replace(docker.to_cmd())
+
+
+def mount_path(value: str) -> Path:
+    p = Path(value).expanduser()
+    if not p.is_absolute():
+        p = ROOT / p
+
+    p = p.resolve()
+
+    if not p.exists():
+        raise argparse.ArgumentTypeError(f"mount path '{value}' does not exist.")
+
+    if p == ROOT_GIT:
+        raise argparse.ArgumentTypeError(f"use git related flags for git.")
+
+    try:
+        p.relative_to(ROOT)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"mount path '{value}' must be inside {ROOT}")
+
+    return p
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -146,9 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--no-theme",
-        action="store_true",
-        help="Don't forward theme env vars."
+        "--no-theme", action="store_true", help="Don't forward theme env vars."
     )
 
     sub = parser.add_subparsers(dest="command")
@@ -157,20 +322,88 @@ def build_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser("run", help="Start a new container session")
 
     p_run.add_argument(
-        "environment",
-        nargs="?",
-        type=ImageType,
-        choices=list(ImageType),
-        help=f"Environment to launch (default: {ImageType.RUNTIME.value})",
+        "-n",
+        "--name",
+        help="Assign a name to the container",
     )
 
     p_run.add_argument(
-        "directory",
-        nargs="?",
-        help="Path to mount as /work (default: .)",
+        "--no-git",
+        action="store_true",
+        help="Do not mount git",
     )
 
-    # g_host = p_run.add_argument_group("host integration")
+    p_run.add_argument(
+        "-g", "--write-git", action="store_true", help="Mount git as writable"
+    )
+
+    p_run.add_argument(
+        "--ignore-git-check",
+        action="store_true",
+        help="Don't check for git in cwd. (Project root check)",
+    )
+
+    p_run.add_argument(
+        "-m",
+        "--mount",
+        action="append",
+        type=mount_path,
+        metavar="DIR",
+        default=None,
+        help="Read-only mount directory",
+    )
+
+    p_run.add_argument(
+        "-w",
+        "--write",
+        action="append",
+        type=mount_path,
+        metavar="DIR",
+        default=None,
+        help="Writable mount directory",
+    )
+
+    p_run.add_argument(
+        "-d",
+        "--dest",
+        default=DEFAULT_DEST,
+        help="Where to mount root inside the container",
+    )
+
+    # dev-shell attach
+    # p_attach = sub.add_parser(
+    #     "attach",
+    #     help="Attach to the running container"
+    # )
+    #
+    # p_attach.add_argument(
+    #     "name",
+    #     help="Name of the container"
+    # )
+
+    # dev-shell list
+    p_list = sub.add_parser(
+        "list",
+        help="List all container",
+    )
+
+    p_list.add_argument(
+        "--format",
+        help="Format output using docker format.",
+    )
+
+    p_list.add_argument(
+        "-a", "--all", action="store_true", help="Don't limit to the project root."
+    )
+
+    p_list.add_argument("--root", default=ROOT, help="Project root to limit to")
+
+    p_list.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Only display container IDs",
+    )
 
     return parser
 
@@ -183,16 +416,44 @@ def main():
 
     match args.command:
         case "run":
+            mount = args.mount or [ROOT]
+            mount.extend(args.write or [])
+
+            write_set = set(args.write) if args.write else set()
+
+            mount_opts = MountOptions(
+                root=ROOT,
+                target=args.dest,
+                mount_directories=mount,
+                write_directories=write_set,
+            )
+
+            if args.no_git and args.write_git:
+                die("Git flag conflict, No git + write git.")
+
+            mount_opts.add_git(not args.no_git, args.write_git)
+
             run_opts = RunOptions(
-                image_type=args.environment or ImageType.RUNTIME,
-                source_dir=Path(args.directory) if args.directory else Path.cwd(),
+                project_dir=Path.cwd(),
+                name=args.name or None,
+                mount_opts=mount_opts,
+                check_git=not args.ignore_git_check,
             )
 
             cmd_run(general_opts, run_opts)
+        # case "attach":
+        # attach_options =
+        case "list":
+            list_opts = ListOptions(
+                project_root=args.root or ROOT,
+                format=args.format or None,
+                quiet=args.quiet,
+                all=args.all,
+            )
+            cmd_list(list_opts)
         case _:
             parser.print_help()
             sys.exit(1)
-
 
 
 if __name__ == "__main__":
