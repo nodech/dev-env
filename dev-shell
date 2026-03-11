@@ -47,6 +47,7 @@ DEFAULT_CAPS = [
 DEBUG = os.environ.get("DEBUG") == "1"
 DEBUG_NO_EXEC = os.environ.get("DEBUG_NO_EXEC") == "1"
 
+HOME = Path(os.environ["HOME"]).resolve()
 ROOT = Path.cwd().resolve()
 ROOT_GIT = (ROOT / ".git").resolve()
 
@@ -55,6 +56,8 @@ HOME_DEST = Path("/root")
 GNUPG_DEST = HOME_DEST / ".gnupg"
 GNUPG_PUBRING = GNUPG_DEST / "pubring.kbx"
 PASS_DEST = HOME_DEST / ".password-store"
+
+ATTACH_EXEC = "/usr/bin/zsh"
 
 
 def debuglog(msg: str) -> None:
@@ -97,6 +100,12 @@ def normalize_mounts(paths: list[Path]) -> list[Path]:
 
 
 @dataclass
+class AgentOptions:
+    codex: bool = False
+    claude: bool = False
+
+
+@dataclass
 class MountOptions:
     root: Path
     target: Path
@@ -114,6 +123,7 @@ class MountOptions:
 @dataclass
 class RunOptions:
     mount_opts: MountOptions
+    agent_opts: AgentOptions
     project_dir: Path
     check_git: bool = True
     name: str | None = None
@@ -210,12 +220,6 @@ class ListOptions:
 
 
 @dataclass
-class AttachOptions:
-    project_root: Path
-    name: str | None
-
-
-@dataclass
 class DockerListCommand:
     project_root: Path | None
     format: str | None
@@ -241,6 +245,35 @@ class DockerListCommand:
         return args
 
 
+@dataclass
+class AttachOptions:
+    project_root: Path
+    exec: str
+    name: str | None
+    id: str | None
+
+
+@dataclass
+class DockerAttachCommand:
+    project_root: Path
+    exec: str
+    name: str | None
+    id: str | None
+
+    def to_cmd(self) -> list[str]:
+        args: list[str] = ["docker", "exec", "-it"]
+
+        if self.id is not None:
+            args.append(self.id)
+        else:
+            assert self.name is not None
+            args.append(self.name)
+
+        args.append(self.exec)
+
+        return args
+
+
 def collect_theme_env_vars() -> list[str]:
     env_vars: list[str] = []
     active_theme = capture(["chcolor.sh", "-c"])
@@ -262,6 +295,19 @@ def mount_to_mount(
     dest = remote_root / relative
 
     return MountDir(local_path=path, remote_path=dest, write=write)
+
+
+def list_running(root: Path) -> list[str]:
+    docker = DockerListCommand(project_root=root, format=None, quiet=True, all=False)
+
+    res = capture(docker.to_cmd())
+
+    if res is None:
+        return []
+
+    # assert res is not None
+    containers = list(map(lambda s: s.strip(), res.split("\n")))
+    return containers
 
 
 def cmd_run(opts: RunOptions):
@@ -309,13 +355,7 @@ def cmd_run(opts: RunOptions):
         docker.env_vars.append(f"GNUPGHOME={GNUPG_DEST}")
 
     if opts.pass_passstore:
-        pass_home: Path | None = None
-        try:
-            pass_home = Path(os.environ["HOME"]).resolve() / ".password-store"
-        except:
-            die(f"Could not get $HOME.")
-
-        assert pass_home is not None
+        pass_home = HOME / ".password-store"
 
         if not pass_home.exists():
             die("Can't mount the pass store, it does not exist.")
@@ -327,6 +367,10 @@ def cmd_run(opts: RunOptions):
                 write=False,
             )
         )
+
+    if opts.agent_opts.codex:
+        auth = HOME / ".codex" / "auth.json"
+        docker.mounts.append(mount_to_mount(HOME, HOME_DEST, auth, False))
 
     docker.labels.append(f"project-root={docker.project_root}")
 
@@ -352,6 +396,17 @@ def cmd_list(list_opts: ListOptions):
         format=list_opts.format,
         quiet=list_opts.quiet,
         all=list_opts.all,
+    )
+
+    exec_replace(docker.to_cmd())
+
+
+def cmd_attach(attach_opts: AttachOptions):
+    docker = DockerAttachCommand(
+        project_root=attach_opts.project_root,
+        exec=attach_opts.exec,
+        name=attach_opts.name,
+        id=attach_opts.id,
     )
 
     exec_replace(docker.to_cmd())
@@ -385,7 +440,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--no-theme", action="store_true", help="Don't forward theme env vars."
+        "--no-theme", action="store_true", help="Don't forward theme env vars"
     )
 
     sub = parser.add_subparsers(dest="command")
@@ -412,7 +467,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument(
         "--ignore-git-check",
         action="store_true",
-        help="Don't check for git in cwd. (Project root check)",
+        help="Don't check for git in cwd (Project root check)",
     )
 
     p_run.add_argument(
@@ -445,20 +500,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--no-gpg", action="store_true", help="Don't mount gpg socket")
     p_run.add_argument("--no-pass", action="store_true", help="Don't mount pass store")
 
+    # AI Mounts that are not secure but they don't provide alternatives.
+    p_run.add_argument("--codex", action="store_true", help="Mount codex secrets.")
+    p_run.add_argument("--claude", action="store_true", help="Mount codex secrets.")
+
     # dev-shell attach
-    # p_attach = sub.add_parser(
-    #     "attach",
-    #     help="Attach to the running container"
-    # )
-    #
-    # p_attach.add_argument(
-    #     "name",
-    #     help="Name of the container"
-    # )
+    p_attach = sub.add_parser("attach", help="Attach to the running container")
+
+    p_attach.add_argument("-n", "--name", default=None, help="Name of the container")
 
     # dev-shell list
     p_list = sub.add_parser(
         "list",
+        aliases=["ls"],
         help="List all container",
     )
 
@@ -468,7 +522,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p_list.add_argument(
-        "-a", "--all", action="store_true", help="Don't limit to the project root."
+        "-a", "--all", action="store_true", help="Don't limit to the project root"
     )
 
     p_list.add_argument("--root", default=ROOT, help="Project root to limit to")
@@ -506,10 +560,16 @@ def main():
 
             mount_opts.add_git(not args.no_git, args.write_git)
 
+            agent_opts = AgentOptions(
+                claude=args.claude,
+                codex=args.codex,
+            )
+
             run_opts = RunOptions(
+                mount_opts=mount_opts,
+                agent_opts=agent_opts,
                 project_dir=Path.cwd(),
                 name=args.name or None,
-                mount_opts=mount_opts,
                 check_git=not args.ignore_git_check,
                 pass_theme=not args.no_theme,
                 pass_gpg=not args.no_gpg,
@@ -517,9 +577,23 @@ def main():
             )
 
             cmd_run(run_opts)
-        # case "attach":
-        # attach_options =
-        case "list":
+        case "attach":
+            attach_options = AttachOptions(
+                project_root=ROOT,
+                exec=ATTACH_EXEC,
+                name=args.name,
+                id=None,
+            )
+
+            if attach_options.name is None:
+                running = list_running(attach_options.project_root)
+                if len(running) > 1:
+                    die(f"Can not choose between running containers ({len(running)})")
+                attach_options.id = running[0]
+
+            cmd_attach(attach_options)
+
+        case "list" | "ls":
             list_opts = ListOptions(
                 project_root=args.root or ROOT,
                 format=args.format or None,
