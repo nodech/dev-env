@@ -329,10 +329,10 @@ def cmd_run(opts: RunOptions):
         gpg_home = capture(["gpgconf", "--list-dir", "homedir"])
 
         if gpg_socket is None:
-            die("Could not find gpg socket.")
+            die("Could not find the GPG socket.")
 
         if gpg_home is None:
-            die("Could not find gpg home.")
+            die("Could not find the GPG home directory.")
 
         assert gpg_socket is not None
         assert gpg_home is not None
@@ -359,7 +359,7 @@ def cmd_run(opts: RunOptions):
         pass_home = HOME / ".password-store"
 
         if not pass_home.exists():
-            die("Can't mount the pass store, it does not exist.")
+            die("Cannot mount the pass store because it does not exist.")
 
         docker.mounts.append(
             MountDir(
@@ -424,7 +424,7 @@ def parse_mount_path(value: str, cwd: Path, project_root: Path) -> Path:
         raise argparse.ArgumentTypeError(f"mount path '{value}' does not exist.")
 
     if p == project_root / ".git":
-        raise argparse.ArgumentTypeError(f"use git related flags for git.")
+        raise argparse.ArgumentTypeError("Use the Git-related flags for .git.")
 
     try:
         p.relative_to(project_root)
@@ -442,10 +442,6 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
         description="Containerized development environment launcher",
     )
 
-    parser.add_argument(
-        "--no-theme", action="store_true", help="Don't forward theme env vars"
-    )
-
     sub = parser.add_subparsers(dest="command")
 
     # dev-shell run
@@ -460,11 +456,11 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     p_run.add_argument(
         "--no-git",
         action="store_true",
-        help="Do not mount git",
+        help="Do not mount Git",
     )
 
     p_run.add_argument(
-        "-g", "--write-git", action="store_true", help="Mount git as writable"
+        "-g", "--write-git", action="store_true", help="Mount Git with write access"
     )
 
     p_run.add_argument(
@@ -474,7 +470,7 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
         type=lambda value: parse_mount_path(value, cwd, project_root),
         metavar="DIR",
         default=None,
-        help="Read-only mount directory",
+        help="Mount a directory as read-only",
     )
 
     p_run.add_argument(
@@ -484,51 +480,76 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
         type=lambda value: parse_mount_path(value, cwd, project_root),
         metavar="DIR",
         default=None,
-        help="Writable mount directory",
+        help="Mount a directory as writable",
     )
 
     p_run.add_argument(
         "-d",
         "--dest",
         default=DEFAULT_DEST,
-        help="Where to mount root inside the container",
+        help="Mount target inside the container",
     )
 
-    p_run.add_argument("--no-gpg", action="store_true", help="Don't mount gpg socket")
-    p_run.add_argument("--no-pass", action="store_true", help="Don't mount pass store")
+    p_run.add_argument(
+        "--no-theme",
+        action="store_true",
+        help="Do not forward theme-related environment variables",
+    )
 
-    # AI Mounts that are not secure but they don't provide alternatives.
-    p_run.add_argument("--codex", action="store_true", help="Mount codex secrets.")
-    p_run.add_argument("--claude", action="store_true", help="Mount codex secrets.")
+    p_run.add_argument(
+        "--no-gpg", action="store_true", help="Do not mount the GPG socket"
+    )
+    p_run.add_argument(
+        "--no-pass", action="store_true", help="Do not mount the pass store"
+    )
+
+    # These mounts expose local credentials because the tools do not provide safer alternatives.
+    p_run.add_argument("--codex", action="store_true", help="Mount Codex credentials.")
+    p_run.add_argument(
+        "--claude", action="store_true", help="Mount Claude credentials."
+    )
 
     # dev-shell attach
-    p_attach = sub.add_parser("attach", help="Attach to the running container")
+    p_attach = sub.add_parser(
+        "attach",
+        help="Open a shell in the running container",
+    )
 
-    p_attach.add_argument("-n", "--name", default=None, help="Name of the container")
+    p_attach.add_argument(
+        "-n",
+        "--name",
+        default=None,
+        help="Name of the container to open a shell in",
+    )
 
     # dev-shell list
     p_list = sub.add_parser(
         "list",
         aliases=["ls"],
-        help="List all container",
+        help="List containers",
     )
 
     p_list.add_argument(
         "--format",
-        help="Format output using docker format.",
+        help="Format output using Docker's template syntax.",
     )
 
     p_list.add_argument(
-        "-a", "--all", action="store_true", help="Don't limit to the project root"
+        "-a",
+        "--all",
+        action="store_true",
+        help="Do not limit results to the project root",
     )
 
-    p_list.add_argument("--root", default=project_root, help="Project root to limit to")
+    p_list.add_argument(
+        "--root", default=project_root, help="Project root to filter by"
+    )
 
     p_list.add_argument(
         "-q",
         "--quiet",
         action="store_true",
-        help="Only display container IDs",
+        help="Display only container IDs",
     )
 
     return parser
@@ -559,7 +580,7 @@ def main():
             )
 
             if args.no_git and args.write_git:
-                die("Git flag conflict, No git + write git.")
+                die("Conflicting Git flags: --no-git and --write-git.")
 
             mount_opts.add_git(not args.no_git, args.write_git)
 
@@ -600,7 +621,7 @@ def main():
                     die("No running containers found for this project root.")
 
                 if len(running) > 1:
-                    die(f"Can not choose between running containers ({len(running)})")
+                    die(f"Cannot choose between {len(running)} running containers.")
 
                 attach_options.id = running[0]
 

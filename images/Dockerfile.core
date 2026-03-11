@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.4
 FROM archlinux:latest
 
-# Core system setup
+# Set up the core system
 RUN <<'EOF'
 set -e
 pacman -Syu --noconfirm
@@ -69,7 +69,7 @@ pacman -Scc --noconfirm
 
 EOF
 
-# Setup rust
+# Set up Rust
 RUN <<'EOF'
 set -e
 rustup default stable

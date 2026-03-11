@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.4
 FROM nodech/dev-core:latest
 
-# Install all the agents
+# Install agent CLIs
 RUN <<'EOF'
 set -e
 npm install -g @openai/codex
@@ -10,7 +10,7 @@ npm install -g opencode-ai
 npm cache clean --force
 EOF
 
-# Install nightly nvim for nvim12.
+# Install nightly Neovim for Neovim 0.12.
 RUN <<'EOF'
 set -e
 cd $HOME
@@ -22,7 +22,7 @@ mkdir $HOME/.bin
 ln -s $HOME/nvim-linux-x86_64/bin/nvim $HOME/.bin/nvim
 EOF
 
-# Setup dotfiles
+# Set up dotfiles
 RUN <<'EOF'
 set -e
 git clone https://github.com/nodech/dotfiles $HOME/dotfiles/
@@ -36,7 +36,7 @@ make nvim
 
 EOF
 
-# Setup neovim
+# Set up Neovim
 RUN <<'EOF'
 set -e
 $HOME/nvim-linux-x86_64/bin/nvim --headless -c 'qall'
@@ -46,7 +46,7 @@ cargo build --release
 
 EOF
 
-# Patch zshrc with custom script
+# Patch `.zshrc` with a custom script
 COPY zshrc.docker /root/.zshrc.docker.init
 RUN echo "source $HOME/.zshrc.docker.init" >> $HOME/.zshrc
 
