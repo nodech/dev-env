@@ -27,6 +27,15 @@ $(NAME)-only:
 		--label project=$(LABEL) \
 		.
 
+$(HOME)/.oh-my-zsh/custom/completions:
+	@mkdir -p $(HOME)/.oh-my-zsh/custom/completions
+
+oh-my-zsh: $(HOME)/.oh-my-zsh/custom/completions
+	stow -v --target=$(HOME)/.oh-my-zsh/custom/completions/ completions
+
+unoh-my-zsh:
+	stow -D -v --target=$(HOME)/.oh-my-zsh/custom/completions/ completions
+
 clean:
 	docker rmi -f \
 		$$(docker images --filter="label=project=$(LABEL)" -q) \
