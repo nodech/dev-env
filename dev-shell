@@ -373,6 +373,23 @@ def cmd_run(opts: RunOptions):
         auth = HOME / ".codex" / "auth.json"
         docker.mounts.append(mount_to_mount(HOME, HOME_DEST, auth, False))
 
+    if opts.agent_opts.claude:
+        claude = HOME / ".claude"
+        write_items = [
+            HOME / ".claude.json",
+        ]
+
+        read_items = [
+            claude / ".credentials.json",
+            claude / "settings.json",
+        ]
+
+        for item in write_items:
+            docker.mounts.append(mount_to_mount(HOME, HOME_DEST, item, True))
+
+        for item in read_items:
+            docker.mounts.append(mount_to_mount(HOME, HOME_DEST, item, False))
+
     docker.labels.append(f"project-root={docker.project_root}")
 
     mounts = normalize_mounts(opts.mount_opts.mount_directories)
@@ -511,9 +528,7 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
 
     # These mounts expose local credentials because the tools do not provide safer alternatives.
     p_run.add_argument("--codex", action="store_true", help="Mount Codex credentials")
-    p_run.add_argument(
-        "--claude", action="store_true", help="Mount Claude credentials"
-    )
+    p_run.add_argument("--claude", action="store_true", help="Mount Claude credentials")
 
     # dev-shell attach
     p_attach = sub.add_parser(
