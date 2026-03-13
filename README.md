@@ -23,22 +23,23 @@ options:
 
 ```text
 usage: dev-shell run [-h] [-n NAME] [--no-git] [-g] [-m DIR] [-w DIR]
-                     [-d DEST] [--no-theme] [--no-gpg] [--no-pass] [--codex]
-                     [--claude]
+                     [--skip-git-check] [-d DEST] [--no-theme] [--no-gpg]
+                     [--no-pass] [--codex] [--claude]
 
 options:
   -h, --help       show this help message and exit
   -n, --name NAME  Assign a name to the container
   --no-git         Do not mount Git
   -g, --write-git  Mount Git with write access
+  --skip-git-check Skip the Git repository check
   -m, --mount DIR  Mount a directory as read-only
   -w, --write DIR  Mount a directory as writable
   -d, --dest DEST  Mount target inside the container
   --no-theme       Do not forward theme-related environment variables
   --no-gpg         Do not mount the GPG socket
   --no-pass        Do not mount the pass store
-  --codex          Mount Codex credentials.
-  --claude         Mount Claude credentials.
+  --codex          Mount Codex credentials
+  --claude         Mount Claude credentials
 ```
 
 ## `attach --help`

@@ -464,6 +464,12 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     )
 
     p_run.add_argument(
+        "--skip-git-check",
+        action="store_true",
+        help="Skip the Git repository check",
+    )
+
+    p_run.add_argument(
         "-m",
         "--mount",
         action="append",
@@ -504,9 +510,9 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     )
 
     # These mounts expose local credentials because the tools do not provide safer alternatives.
-    p_run.add_argument("--codex", action="store_true", help="Mount Codex credentials.")
+    p_run.add_argument("--codex", action="store_true", help="Mount Codex credentials")
     p_run.add_argument(
-        "--claude", action="store_true", help="Mount Claude credentials."
+        "--claude", action="store_true", help="Mount Claude credentials"
     )
 
     # dev-shell attach
@@ -562,9 +568,12 @@ def main():
 
     match args.command:
         case "run":
+            has_git_repo = project_root is not None
+
+            if not has_git_repo and not args.skip_git_check:
+                die(f"Must be run from inside a git repository: {CWD}")
+
             if project_root is None:
-                if not args.no_git:
-                    die(f"Must be run from inside a git repository: {CWD}")
                 project_root = CWD
 
             mount = args.mount or [project_root]
@@ -582,7 +591,13 @@ def main():
             if args.no_git and args.write_git:
                 die("Conflicting Git flags: --no-git and --write-git.")
 
-            mount_opts.add_git(not args.no_git, args.write_git)
+            if args.no_git and not has_git_repo:
+                die("--no-git requires running inside a git repository.")
+
+            if args.write_git and not has_git_repo:
+                die("--write-git requires running inside a git repository.")
+
+            mount_opts.add_git(has_git_repo and not args.no_git, args.write_git)
 
             agent_opts = AgentOptions(
                 claude=args.claude,
