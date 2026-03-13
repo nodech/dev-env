@@ -46,11 +46,15 @@ cargo build --release
 
 EOF
 
+# Compile bat themes
+RUN bat cache --build
+
 # Patch `.zshrc` with a custom script
 COPY zshrc.docker /root/.zshrc.docker.init
 RUN echo "source $HOME/.zshrc.docker.init" >> $HOME/.zshrc
 
 ENV TERM=screen-256color
+ENV COLORTERM=truecolor
 
 WORKDIR /work
 
