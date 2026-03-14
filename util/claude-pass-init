@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# One-time init: store claude credentials from host into pass.
+
+set -euo pipefail
+
+HOST_HOME=${1:-$HOME}
+PASS_KEY=dev-env/claude
+
+tar -czO \
+    --transform "s|^${HOST_HOME#/}|root|" \
+    "$HOST_HOME/.claude.json" \
+    "$HOST_HOME/.claude/.credentials.json" \
+    | pass insert -f -m "$PASS_KEY"
+
+echo "Stored claude credentials in pass under '$PASS_KEY'"

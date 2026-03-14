@@ -1,6 +1,42 @@
+CODEX_BIN=/usr/bin/codex
+CLAUDE_BIN=/usr/bin/claude
+
+# codex-load() {
+#   mkdir -p ~/.codex
+#   pass show "$PASS_CODEX" > ~/.codex/auth.json
+#   (sleep 90 && shred -u ~/.codex/auth.json) &
+# }
+#
+# codex() {
+#   codex-load
+#   $CODEX_BIN "$@"
+# }
+
+ensure_trust() {
+  echo "$PASS_GPG_ID:6:" | gpg --import-ownertrust 2> /dev/null
+}
 
 
-if [[ "$DOCKER_THEME" != "" ]]
-then
+claude-load() {
+  ensure_trust
+
+  pass show "$PASS_CLAUDE" | tar -xzf - -C / --no-same-owner
+  (
+    sleep 90 \
+    && tar -czO ~/.claude.json ~/.claude/.credentials.json \
+      | pass insert -f -m "$PASS_CLAUDE" \
+    && shred -u ~/.claude.json ~/.claude/.credentials.json \
+  ) &
+}
+
+claude() {
+  if [ -n "$PASS_CLAUDE" ]; then
+    claude-load
+  fi
+
+  $CLAUDE_BIN "$@"
+}
+
+if [[ "$DOCKER_THEME" != "" ]]; then
   chcolor.sh $DOCKER_THEME > /dev/null 2> /dev/null
 fi

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# One-time init: store codex credentials from host into pass.
+
+set -euo pipefail
+
+HOST_HOME=${1:-$HOME}
+PASS_KEY=dev-env/codex
+
+pass insert -f -m "$PASS_KEY" < "$HOST_HOME/.codex/auth.json"
+
+echo "Stored codex credentials in pass under '$PASS_KEY'"

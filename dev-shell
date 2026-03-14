@@ -53,9 +53,6 @@ CWD = Path.cwd().resolve()
 
 DEFAULT_DEST = "/work"
 HOME_DEST = Path("/root")
-GNUPG_DEST = HOME_DEST / ".gnupg"
-GNUPG_PUBRING = GNUPG_DEST / "pubring.kbx"
-PASS_DEST = HOME_DEST / ".password-store"
 
 ATTACH_EXEC = "/usr/bin/zsh"
 
@@ -318,7 +315,7 @@ def list_running(root: Path) -> list[str]:
     return containers
 
 
-def docker_with_gpg(docker: DockerRunCommand):
+def update_docker_with_gpg(docker: DockerRunCommand):
     gpg_socket = capture(["gpgconf", "--list-dir", "agent-extra-socket"])
     gpg_home = capture(["gpgconf", "--list-dir", "homedir"])
 
@@ -328,10 +325,12 @@ def docker_with_gpg(docker: DockerRunCommand):
     if gpg_home is None:
         die("Could not find the GPG home directory.")
 
+    gnupg_dest = HOME_DEST / ".gnupg"
+
     docker.mounts.append(
         MountDir(
             local_path=Path(gpg_home) / "pubring.kbx",
-            remote_path=GNUPG_PUBRING,
+            remote_path=gnupg_dest / "pubring.kbx",
             write=False,
         )
     )
@@ -339,12 +338,74 @@ def docker_with_gpg(docker: DockerRunCommand):
     docker.mounts.append(
         MountDir(
             local_path=Path(gpg_socket),
-            remote_path=GNUPG_DEST / "S.gpg-agent",
+            remote_path=gnupg_dest / "S.gpg-agent",
             write=False,
         )
     )
 
-    docker.env_vars.append(f"GNUPGHOME={GNUPG_DEST}")
+    docker.env_vars.append(f"GNUPGHOME={gnupg_dest}")
+
+
+def update_docker_with_pass(docker: DockerRunCommand, opts: RunOptions):
+    update_docker_with_gpg(docker)
+
+    pass_local = HOME / ".password-store"
+    pass_remote = HOME_DEST / ".password-store"
+
+    if not pass_local.exists():
+        die("Cannot mount the pass store because it does not exist.")
+
+    gpg_id = (pass_local / ".gpg-id").read_text().strip()
+
+    docker.env_vars.append("PASS_ENABLED=1")
+    docker.env_vars.append(f"PASS_GPG_ID={gpg_id}")
+
+    docker.mounts.append(
+        MountDir(
+            local_path=pass_local,
+            remote_path=pass_remote,
+            write=False,
+        )
+    )
+
+    if opts.agent_opts.claude:
+        docker.env_vars.append("PASS_CLAUDE=dev-env/claude")
+        docker.mounts.append(
+            mount_to_mount(
+                project_root=pass_local,
+                remote_root=pass_remote,
+                path=pass_local / "dev-env" / "claude.gpg",
+                write=True
+            )
+        )
+
+    if opts.agent_opts.codex:
+        docker.env_vars.append("PASS_CODEX=dev-env/codex")
+        mount_to_mount(
+            project_root=pass_local,
+            remote_root=pass_remote,
+            path=pass_local / "dev-env" / "codex.gpg",
+            write=True
+        )
+
+def update_docker_no_pass(docker: DockerRunCommand, opts: RunOptions):
+    if opts.agent_opts.claude:
+        claude = HOME / ".claude"
+        write_items = [
+            HOME / ".claude.json",
+            claude / ".credentials.json",
+            claude / "settings.json",
+        ]
+
+        # Allow skip perms as root.
+        docker.env_vars.append(f"IS_SANDBOX=1")
+
+        for item in write_items:
+            docker.mounts.append(mount_to_mount(HOME, HOME_DEST, item, True))
+
+    if opts.agent_opts.codex:
+        auth = HOME / ".codex" / "auth.json"
+        docker.mounts.append(mount_to_mount(HOME, HOME_DEST, auth, False))
 
 
 def cmd_run(opts: RunOptions):
@@ -358,49 +419,9 @@ def cmd_run(opts: RunOptions):
         docker.env_vars.extend(collect_theme_env_vars())
 
     if opts.pass_passstore:
-        docker_with_gpg(docker)
-
-        pass_home = HOME / ".password-store"
-
-        if not pass_home.exists():
-            die("Cannot mount the pass store because it does not exist.")
-
-        docker.mounts.append(
-            MountDir(
-                local_path=pass_home,
-                remote_path=PASS_DEST,
-                write=False,
-            )
-        )
-
-        # if opts.agent_opts.claude:
-        #     dev_env_pass = pass_home / "dev-env"
-        #     dev_env_pass.mkdir(exist_ok=True)
-        #     docker.mounts.append(
-        #         MountDir(
-        #             local_path=dev_env_pass,
-        #             remote_path=PASS_DEST / "dev-env",
-        #             write=True,
-        #         )
-        #     )
-
-    if opts.agent_opts.codex:
-        auth = HOME / ".codex" / "auth.json"
-        docker.mounts.append(mount_to_mount(HOME, HOME_DEST, auth, False))
-
-    if opts.agent_opts.claude:
-        # claude = HOME / ".claude"
-        # write_items = [
-        #     HOME / ".claude.json",
-        #     claude / ".credentials.json",
-        #     claude / "settings.json",
-        # ]
-
-        # Allow skip perms as root.
-        docker.env_vars.append(f"IS_SANDBOX=1")
-
-        # for item in write_items:
-        #     docker.mounts.append(mount_to_mount(HOME, HOME_DEST, item, True))
+        update_docker_with_pass(docker, opts)
+    else:
+        update_docker_no_pass(docker, opts)
 
     docker.labels.append(f"project-root={docker.project_root}")
 
@@ -554,8 +575,8 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     )
 
     p_attach.add_argument(
-        "-n",
-        "--name",
+        "name",
+        nargs="?",
         default=None,
         help="Name of the container to open a shell in",
     )
