@@ -20,8 +20,8 @@ _dev-shell() {
             ;;
         args)
             case $words[1] in
-                run)    _dev-shell-run ;;
-                attach) _dev-shell-attach ;;
+                run)     _dev-shell-run ;;
+                attach)  _dev-shell-attach ;;
                 list|ls) _dev-shell-list ;;
             esac
             ;;
@@ -34,19 +34,19 @@ _dev-shell-run() {
         '--no-git[Do not mount Git]' \
         '(-g --write-git)'{-g,--write-git}'[Mount Git with write access]' \
         '--skip-git-check[Skip the Git repository check]' \
-        '(-m --mount)'{-m,--mount}'[Mount a directory as read-only]:directory:_files -/' \
-        '(-w --write)'{-w,--write}'[Mount a directory as writable]:directory:_files -/' \
+        '*'{-m,--mount}'[Mount a directory as read-only]:directory:_files -/' \
+        '*'{-w,--write}'[Mount a directory as writable]:directory:_files -/' \
         '(-d --dest)'{-d,--dest}'[Mount target inside the container]:dest path' \
         '--no-theme[Do not forward theme-related environment variables]' \
-        '--no-gpg[Do not mount the GPG socket]' \
-        '--no-pass[Do not mount the pass store]' \
+        '--no-pass[Do not mount the pass store and GPG socket]' \
+        '--no-sessions[Do not mount the sessions/projects for the agents]' \
         '--codex[Mount Codex credentials]' \
         '--claude[Mount Claude credentials]'
 }
 
 _dev-shell-attach() {
     _arguments \
-        '(-n --name)'{-n,--name}'[Name of the container to open a shell in]:container name:_dev-shell-containers'
+        '1:container name:_dev-shell-containers'
 }
 
 _dev-shell-list() {

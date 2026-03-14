@@ -5,7 +5,7 @@ Containerized development environment launcher.
 ## Help
 
 ```text
-dev-shell [-h] {run,attach,list,ls} ...
+usage: dev-shell [-h] {run,attach,list,ls} ...
 
 Containerized development environment launcher
 
@@ -22,34 +22,36 @@ options:
 ## `run --help`
 
 ```text
-usage: dev-shell run [-h] [-n NAME] [--no-git] [-g] [-m DIR] [-w DIR]
-                     [--skip-git-check] [-d DEST] [--no-theme] [--no-gpg]
-                     [--no-pass] [--codex] [--claude]
+usage: dev-shell run [-h] [-n NAME] [--no-git] [-g] [--skip-git-check]
+                     [-m DIR] [-w DIR] [-d DEST] [--no-theme] [--no-pass]
+                     [--no-sessions] [--codex] [--claude]
 
 options:
-  -h, --help       show this help message and exit
-  -n, --name NAME  Assign a name to the container
-  --no-git         Do not mount Git
-  -g, --write-git  Mount Git with write access
-  --skip-git-check Skip the Git repository check
-  -m, --mount DIR  Mount a directory as read-only
-  -w, --write DIR  Mount a directory as writable
-  -d, --dest DEST  Mount target inside the container
-  --no-theme       Do not forward theme-related environment variables
-  --no-gpg         Do not mount the GPG socket
-  --no-pass        Do not mount the pass store
-  --codex          Mount Codex credentials
-  --claude         Mount Claude credentials
+  -h, --help        show this help message and exit
+  -n, --name NAME   Assign a name to the container
+  --no-git          Do not mount Git
+  -g, --write-git   Mount Git with write access
+  --skip-git-check  Skip the Git repository check
+  -m, --mount DIR   Mount a directory as read-only
+  -w, --write DIR   Mount a directory as writable
+  -d, --dest DEST   Mount target inside the container
+  --no-theme        Do not forward theme-related environment variables
+  --no-pass         Do not mount the pass store and GPG socket
+  --no-sessions     Do not mount the sessions/projects for the agents
+  --codex           Mount Codex credentials
+  --claude          Mount Claude credentials
 ```
 
 ## `attach --help`
 
 ```text
-usage: dev-shell attach [-h] [-n NAME]
+usage: dev-shell attach [-h] [name]
+
+positional arguments:
+  name        Name of the container to open a shell in
 
 options:
-  -h, --help       show this help message and exit
-  -n, --name NAME  Name of the container to open a shell in
+  -h, --help  show this help message and exit
 ```
 
 ## `list --help`

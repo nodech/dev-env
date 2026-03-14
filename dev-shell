@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import sys
 import subprocess
@@ -51,6 +52,10 @@ DEBUG_NO_EXEC = os.environ.get("DEBUG_NO_EXEC") == "1"
 HOME = Path(os.environ["HOME"]).resolve()
 CWD = Path.cwd().resolve()
 
+LOCAL_SHARE = HOME / ".local" / "share" / PROG_NAME
+LOCAL_CLAUDE_SESSIONS = LOCAL_SHARE / "claude" / "projects"
+LOCAL_CODEX_SESSIONS = LOCAL_SHARE / "codex" / "sessions"
+
 DEFAULT_DEST = "/work"
 HOME_DEST = Path("/root")
 
@@ -84,6 +89,12 @@ def git_toplevel(path: Path) -> Path | None:
     return Path(top).resolve() if top else None
 
 
+def project_storage_name(path: Path) -> str:
+    resolved = path.expanduser().resolve()
+    digest = hashlib.sha1(str(resolved).encode()).hexdigest()[:8]
+    return f"{resolved.name}-{digest}"
+
+
 def exec_replace(cmd: list[str]):
     debuglog(f"Running: {cmd}")
 
@@ -108,6 +119,7 @@ def normalize_mounts(paths: list[Path]) -> list[Path]:
 class AgentOptions:
     codex: bool = False
     claude: bool = False
+    sessions: bool = True
 
 
 @dataclass
@@ -375,18 +387,31 @@ def update_docker_with_pass(docker: DockerRunCommand, opts: RunOptions):
                 project_root=pass_local,
                 remote_root=pass_remote,
                 path=pass_local / "dev-env" / "claude.gpg",
-                write=True
+                write=True,
+            )
+        )
+
+        # Claude just cries w/o this file.
+        docker.mounts.append(
+            mount_to_mount(
+                project_root=HOME,
+                remote_root=HOME_DEST,
+                path=HOME / ".claude.json",
+                write=True,
             )
         )
 
     if opts.agent_opts.codex:
         docker.env_vars.append("PASS_CODEX=dev-env/codex")
-        mount_to_mount(
-            project_root=pass_local,
-            remote_root=pass_remote,
-            path=pass_local / "dev-env" / "codex.gpg",
-            write=True
+        docker.mounts.append(
+            mount_to_mount(
+                project_root=pass_local,
+                remote_root=pass_remote,
+                path=pass_local / "dev-env" / "codex.gpg",
+                write=True,
+            )
         )
+
 
 def update_docker_no_pass(docker: DockerRunCommand, opts: RunOptions):
     if opts.agent_opts.claude:
@@ -424,6 +449,31 @@ def cmd_run(opts: RunOptions):
         update_docker_no_pass(docker, opts)
 
     docker.labels.append(f"project-root={docker.project_root}")
+
+    if opts.agent_opts.sessions:
+        local_project_name = project_storage_name(docker.project_root)
+
+        if opts.agent_opts.claude:
+            local_claude_dir = LOCAL_CLAUDE_SESSIONS / local_project_name
+            local_claude_dir.mkdir(parents=True, exist_ok=True)
+            docker.mounts.append(
+                MountDir(
+                    local_path=local_claude_dir,
+                    remote_path=HOME_DEST / ".claude" / "projects",
+                    write=True,
+                )
+            )
+
+        if opts.agent_opts.codex:
+            local_codex_dir = LOCAL_CODEX_SESSIONS / local_project_name
+            local_codex_dir.mkdir(parents=True, exist_ok=True)
+            docker.mounts.append(
+                MountDir(
+                    local_path=local_codex_dir,
+                    remote_path=HOME_DEST / ".codex" / "sessions",
+                    write=True,
+                )
+            )
 
     agents = []
     if opts.agent_opts.claude:
@@ -561,7 +611,15 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     )
 
     p_run.add_argument(
-        "--no-pass", action="store_true", help="Do not mount the pass store and GPG socket"
+        "--no-pass",
+        action="store_true",
+        help="Do not mount the pass store and GPG socket",
+    )
+
+    p_run.add_argument(
+        "--no-sessions",
+        action="store_true",
+        help="Do not mount the sessions/projects for the agents.",
     )
 
     # These mounts expose local credentials because the tools do not provide safer alternatives.
@@ -653,8 +711,7 @@ def main():
             mount_opts.add_git(has_git_repo and not args.no_git, args.write_git)
 
             agent_opts = AgentOptions(
-                claude=args.claude,
-                codex=args.codex,
+                claude=args.claude, codex=args.codex, sessions=not args.no_sessions
             )
 
             run_opts = RunOptions(

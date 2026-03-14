@@ -1,32 +1,66 @@
 CODEX_BIN=/usr/bin/codex
 CLAUDE_BIN=/usr/bin/claude
 
-# codex-load() {
-#   mkdir -p ~/.codex
-#   pass show "$PASS_CODEX" > ~/.codex/auth.json
-#   (sleep 90 && shred -u ~/.codex/auth.json) &
-# }
-#
-# codex() {
-#   codex-load
-#   $CODEX_BIN "$@"
-# }
-
 ensure_trust() {
   echo "$PASS_GPG_ID:6:" | gpg --import-ownertrust 2> /dev/null
 }
 
+TIMEOUT=20
 
-claude-load() {
+CODEX_BACKUP_PIDFILE="/tmp/.codex_backup"
+CLAUDE_BACKUP_PIDFILE="/tmp/.claude_backup"
+
+CODEX_SECRET_FILE=~/.codex/auth.json
+CLAUDE_SECRET_FILE=~/.claude/.credentials.json
+
+
+# $PID_FILE $SECRET_FILE $PASS_NAME
+clean() {
+  pass insert -f -m "$3" < "$2"
+  shred -u "$2"
+  rrm "$1" 2> /dev/null
+}
+
+# load $PID_FILE $SECRET_FILE $PASS_NAME
+load() {
   ensure_trust
 
-  pass show "$PASS_CLAUDE" | tar -xzf - -C / --no-same-owner
+  local pid_file="$1"
+  local secret_file="$2"
+  local pass_name="$3"
+
+  if [[ -f "$pid_file" ]]; then
+    kill "$(< "$pid_file")" 2>/dev/null
+    rrm -f "$pid_file"
+  fi
+
+  mkdir -p "$(dirname "$secret_file")"
+  pass show "$pass_name" > "$secret_file" || return 1
+
   (
-    sleep 90 \
-    && tar -czO ~/.claude.json ~/.claude/.credentials.json \
-      | pass insert -f -m "$PASS_CLAUDE" \
-    && shred -u ~/.claude.json ~/.claude/.credentials.json \
-  ) &
+    (
+      sleep "$TIMEOUT"
+      clean "$pid_file" "$secret_file" "$pass_name"
+    ) >/dev/null 2>&1 &
+
+    echo $! > "$pid_file"
+  )
+}
+
+codex-load() {
+  load "$CODEX_BACKUP_PIDFILE" "$CODEX_SECRET_FILE" "$PASS_CODEX" || return 1
+}
+
+codex() {
+  if [ -n "$PASS_CODEX" ]; then
+    codex-load
+  fi
+
+  $CODEX_BIN "$@"
+}
+
+claude-load() {
+  load "$CLAUDE_BACKUP_PIDFILE" "$CLAUDE_SECRET_FILE" "$PASS_CLAUDE" || return 1
 }
 
 claude() {
