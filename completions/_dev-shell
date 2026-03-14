@@ -59,7 +59,14 @@ _dev-shell-list() {
 
 _dev-shell-containers() {
     local -a containers
-    containers=(${(f)"$(docker ps --filter label=runner=dev-shell --format '{{.Names}}' 2>/dev/null)"})
+    local id name root agents cstatus desc
+    while IFS=$'\t' read -r id name root agents cstatus; do
+        [[ -n "$name" ]] || continue
+        desc="$(printf '%-12s  %-20s' "$id" "(${root:t})")"
+        [[ -n "$cstatus" ]] && desc="$desc  $cstatus"
+        [[ -n "$agents" ]] && desc="$desc  [$agents]"
+        containers+=("$name:$desc")
+    done < <(dev-shell ls --all --format $'{{.ID}}\t{{.Names}}\t{{.Label "project-root"}}\t{{.Label "agents"}}\t{{.Status}}' 2>/dev/null)
     _describe 'container' containers
 }
 

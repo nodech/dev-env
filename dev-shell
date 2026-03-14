@@ -377,9 +377,6 @@ def cmd_run(opts: RunOptions):
         claude = HOME / ".claude"
         write_items = [
             HOME / ".claude.json",
-        ]
-
-        read_items = [
             claude / ".credentials.json",
             claude / "settings.json",
         ]
@@ -390,10 +387,15 @@ def cmd_run(opts: RunOptions):
         for item in write_items:
             docker.mounts.append(mount_to_mount(HOME, HOME_DEST, item, True))
 
-        for item in read_items:
-            docker.mounts.append(mount_to_mount(HOME, HOME_DEST, item, False))
-
     docker.labels.append(f"project-root={docker.project_root}")
+
+    agents = []
+    if opts.agent_opts.claude:
+        agents.append("claude")
+    if opts.agent_opts.codex:
+        agents.append("codex")
+    if agents:
+        docker.labels.append(f"agents={','.join(agents)}")
 
     mounts = normalize_mounts(opts.mount_opts.mount_directories)
     docker.mounts.extend(
