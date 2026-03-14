@@ -9,6 +9,7 @@ import subprocess
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NoReturn
 
 PROG_NAME = "dev-shell"
 DEFAULT_IMAGE_NAME = "nodech/dev-env"
@@ -68,13 +69,16 @@ def warn(msg: str) -> None:
     print(f"[{PROG_NAME}] WARN: {msg}", file=sys.stderr, flush=True)
 
 
-def die(msg: str) -> None:
+def die(msg: str) -> NoReturn:
     print(f"[{PROG_NAME}] ERROR: {msg}", file=sys.stderr, flush=True)
     sys.exit(1)
 
 
 def capture(cmd: list[str]) -> str | None:
     r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        debuglog(f"Command failed {cmd}: {r.stderr.strip()}")
+        return None
     return r.stdout.strip() if r.returncode == 0 else None
 
 
@@ -132,7 +136,6 @@ class RunOptions:
     agent_opts: AgentOptions
     name: str | None = None
     pass_theme: bool = True
-    pass_gpg: bool = True
     pass_passstore: bool = True
 
 
@@ -238,6 +241,7 @@ class DockerListCommand:
         if self.project_root is not None:
             args.extend(["--filter", f"label=project-root={self.project_root}"])
 
+        # List exited containers if for some reason they were not cleaned up.
         args.append("--all")
 
         if self.format is not None:
@@ -314,6 +318,35 @@ def list_running(root: Path) -> list[str]:
     return containers
 
 
+def docker_with_gpg(docker: DockerRunCommand):
+    gpg_socket = capture(["gpgconf", "--list-dir", "agent-extra-socket"])
+    gpg_home = capture(["gpgconf", "--list-dir", "homedir"])
+
+    if gpg_socket is None:
+        die("Could not find the GPG socket.")
+
+    if gpg_home is None:
+        die("Could not find the GPG home directory.")
+
+    docker.mounts.append(
+        MountDir(
+            local_path=Path(gpg_home) / "pubring.kbx",
+            remote_path=GNUPG_PUBRING,
+            write=False,
+        )
+    )
+
+    docker.mounts.append(
+        MountDir(
+            local_path=Path(gpg_socket),
+            remote_path=GNUPG_DEST / "S.gpg-agent",
+            write=False,
+        )
+    )
+
+    docker.env_vars.append(f"GNUPGHOME={GNUPG_DEST}")
+
+
 def cmd_run(opts: RunOptions):
     docker = DockerRunCommand(
         name=opts.name,
@@ -324,38 +357,9 @@ def cmd_run(opts: RunOptions):
     if opts.pass_theme:
         docker.env_vars.extend(collect_theme_env_vars())
 
-    if opts.pass_gpg:
-        gpg_socket = capture(["gpgconf", "--list-dir", "agent-extra-socket"])
-        gpg_home = capture(["gpgconf", "--list-dir", "homedir"])
-
-        if gpg_socket is None:
-            die("Could not find the GPG socket.")
-
-        if gpg_home is None:
-            die("Could not find the GPG home directory.")
-
-        assert gpg_socket is not None
-        assert gpg_home is not None
-
-        docker.mounts.append(
-            MountDir(
-                local_path=Path(gpg_home) / "pubring.kbx",
-                remote_path=GNUPG_PUBRING,
-                write=False,
-            )
-        )
-
-        docker.mounts.append(
-            MountDir(
-                local_path=Path(gpg_socket),
-                remote_path=GNUPG_DEST / "S.gpg-agent",
-                write=False,
-            )
-        )
-
-        docker.env_vars.append(f"GNUPGHOME={GNUPG_DEST}")
-
     if opts.pass_passstore:
+        docker_with_gpg(docker)
+
         pass_home = HOME / ".password-store"
 
         if not pass_home.exists():
@@ -369,23 +373,34 @@ def cmd_run(opts: RunOptions):
             )
         )
 
+        # if opts.agent_opts.claude:
+        #     dev_env_pass = pass_home / "dev-env"
+        #     dev_env_pass.mkdir(exist_ok=True)
+        #     docker.mounts.append(
+        #         MountDir(
+        #             local_path=dev_env_pass,
+        #             remote_path=PASS_DEST / "dev-env",
+        #             write=True,
+        #         )
+        #     )
+
     if opts.agent_opts.codex:
         auth = HOME / ".codex" / "auth.json"
         docker.mounts.append(mount_to_mount(HOME, HOME_DEST, auth, False))
 
     if opts.agent_opts.claude:
-        claude = HOME / ".claude"
-        write_items = [
-            HOME / ".claude.json",
-            claude / ".credentials.json",
-            claude / "settings.json",
-        ]
+        # claude = HOME / ".claude"
+        # write_items = [
+        #     HOME / ".claude.json",
+        #     claude / ".credentials.json",
+        #     claude / "settings.json",
+        # ]
 
         # Allow skip perms as root.
         docker.env_vars.append(f"IS_SANDBOX=1")
 
-        for item in write_items:
-            docker.mounts.append(mount_to_mount(HOME, HOME_DEST, item, True))
+        # for item in write_items:
+        #     docker.mounts.append(mount_to_mount(HOME, HOME_DEST, item, True))
 
     docker.labels.append(f"project-root={docker.project_root}")
 
@@ -525,10 +540,7 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     )
 
     p_run.add_argument(
-        "--no-gpg", action="store_true", help="Do not mount the GPG socket"
-    )
-    p_run.add_argument(
-        "--no-pass", action="store_true", help="Do not mount the pass store"
+        "--no-pass", action="store_true", help="Do not mount the pass store and GPG socket"
     )
 
     # These mounts expose local credentials because the tools do not provide safer alternatives.
@@ -603,7 +615,7 @@ def main():
 
             mount_opts = MountOptions(
                 root=project_root,
-                target=args.dest,
+                target=Path(args.dest),
                 mount_directories=mount,
                 write_directories=write_set,
             )
@@ -612,7 +624,7 @@ def main():
                 die("Conflicting Git flags: --no-git and --write-git.")
 
             if args.no_git and not has_git_repo:
-                die("--no-git requires running inside a git repository.")
+                warn("--no-git requires running inside a git repository.")
 
             if args.write_git and not has_git_repo:
                 die("--write-git requires running inside a git repository.")
@@ -629,7 +641,6 @@ def main():
                 agent_opts=agent_opts,
                 name=args.name or None,
                 pass_theme=not args.no_theme,
-                pass_gpg=not args.no_gpg,
                 pass_passstore=not args.no_pass,
             )
 
@@ -648,7 +659,6 @@ def main():
                         f"Attach without --name must be run from inside a git repository: {CWD}"
                     )
 
-                assert project_root is not None
                 attach_options.project_root = project_root
                 running = list_running(attach_options.project_root)
 
