@@ -16,6 +16,20 @@ PROG_NAME = "dev-shell"
 DEFAULT_IMAGE_NAME = "nodech/dev-env"
 IMAGE_NAME = os.environ.get("DOCKER_IMAGE") or DEFAULT_IMAGE_NAME
 
+def label(name: str) -> str:
+    return f'{{{{.Label "{name}"}}}}'
+
+COLUMNS = [
+    "{{.ID}}",
+    "{{.Names}}",
+    "{{.Status}}",
+    label("project-name"),
+    label("agents"),
+    label("project-root"),
+]
+
+DEFAULT_FORMAT = "table " + "\\t".join(COLUMNS)
+
 THEME_VARS = [
     "TMUX_THEME_BG",
     "TMUX_THEME_FG",
@@ -753,7 +767,7 @@ def main():
         case "list" | "ls":
             list_opts = ListOptions(
                 project_root=args.root or project_root or CWD,
-                format=args.format or None,
+                format=args.format or DEFAULT_FORMAT,
                 quiet=args.quiet,
                 all=args.all,
             )
