@@ -104,10 +104,19 @@ def git_toplevel(path: Path) -> Path | None:
     return Path(top).resolve() if top else None
 
 
-def project_storage_name(path: Path) -> str:
+@dataclass
+class ProjectStorageName:
+    name: str
+    digest: str
+
+    def __str__(self):
+        return f"{self.name}-{self.digest}"
+
+
+def project_storage_name(path: Path) -> ProjectStorageName:
     resolved = path.expanduser().resolve()
     digest = hashlib.sha1(str(resolved).encode()).hexdigest()[:8]
-    return f"{resolved.name}-{digest}"
+    return ProjectStorageName(resolved.name, digest)
 
 
 def exec_replace(cmd: list[str]):
@@ -249,14 +258,14 @@ class DockerRunCommand:
 
 @dataclass
 class ListOptions:
-    project_id: str | None
+    project_id: ProjectStorageName | None
     format: str | None
     quiet: bool
 
 
 @dataclass
 class DockerListCommand:
-    project_root: Path | None
+    project_id: ProjectStorageName | None
     format: str | None
     quiet: bool
 
@@ -332,8 +341,8 @@ def mount_to_mount(
     return MountDir(local_path=path, remote_path=dest, write=write)
 
 
-def list_running(root: Path) -> list[str]:
-    docker = DockerListCommand(project_root=root, format=None, quiet=True, all=False)
+def list_running(root: ProjectStorageName) -> list[str]:
+    docker = DockerListCommand(project_id=root, format=None, quiet=True)
 
     res = capture(docker.to_cmd())
 
@@ -399,6 +408,10 @@ def update_docker_with_pass(docker: DockerRunCommand, opts: RunOptions):
     )
 
     if opts.agent_opts.claude:
+        raise Exception("Claude and pass are not compatible."
+            + " Once they open source it maybe we can do something."
+            + " Use --no-pass with it.")
+
         docker.env_vars.append("PASS_CLAUDE=dev-env/claude")
         docker.mounts.append(
             mount_to_mount(
@@ -489,7 +502,7 @@ def cmd_run(opts: RunOptions):
 
     if opts.agent_opts.sessions:
         if opts.agent_opts.claude:
-            local_claude_dir = LOCAL_CLAUDE_SESSIONS / project_id
+            local_claude_dir = LOCAL_CLAUDE_SESSIONS / str(project_id)
             local_claude_dir.mkdir(parents=True, exist_ok=True)
             docker.mounts.append(
                 MountDir(
@@ -500,7 +513,7 @@ def cmd_run(opts: RunOptions):
             )
 
         if opts.agent_opts.codex:
-            local_codex_dir = LOCAL_CODEX_SESSIONS / project_id
+            local_codex_dir = LOCAL_CODEX_SESSIONS / str(project_id)
             local_codex_dir.mkdir(parents=True, exist_ok=True)
             docker.mounts.append(
                 MountDir(
@@ -668,6 +681,19 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
         help="Do not mount the sessions/projects for the agents.",
     )
 
+    p_run.add_argument(
+        "exec",
+        nargs=argparse.REMAINDER,
+        help="Pass the cmd to run.",
+    )
+
+    p_run.add_argument(
+        "-r",
+        "--raw",
+        action="store_true",
+        help="Do not nest cmd inside zsh",
+    )
+
     # These mounts expose local credentials because the tools do not provide safer alternatives.
     p_run.add_argument("--codex", action="store_true", help="Mount Codex credentials")
     p_run.add_argument("--claude", action="store_true", help="Mount Claude credentials")
@@ -711,7 +737,10 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     )
 
     p_list.add_argument(
-        "--root", default=project_root, help="Project root to filter by"
+        "-p",
+        "--project",
+        nargs="?",
+        help="Find containers with project id."
     )
 
     p_list.add_argument(
@@ -766,7 +795,16 @@ def main():
                 claude=args.claude, codex=args.codex, sessions=not args.no_sessions
             )
 
+            # Everything after -- will become a cmd.
+            exec_cmd_idx = next((idx for idx, arg in enumerate(args.exec) if arg == "--"), None)
+            exec_cmd = []
+
+            if exec_cmd_idx is not None:
+                exec_cmd = args.exec[exec_cmd_idx + 1:]
+
             run_opts = RunOptions(
+                exec=exec_cmd,
+                raw_exec=args.raw,
                 mount_opts=mount_opts,
                 agent_opts=agent_opts,
                 name=args.name or None,
