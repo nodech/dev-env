@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import shlex
 import sys
 import subprocess
 
@@ -155,9 +156,12 @@ class MountOptions:
 
 @dataclass
 class RunOptions:
+    exec: list[str]
     mount_opts: MountOptions
     agent_opts: AgentOptions
+    raw_exec: bool = False
     name: str | None = None
+    project_name: str | None = None
     pass_theme: bool = True
     pass_passstore: bool = True
 
@@ -198,6 +202,7 @@ class DockerRunCommand:
     # mask_list: list[str] = field(default_factory=lambda: list(SYSFS_MASKS))
 
     mounts: list[MountDir] = field(default_factory=lambda: [])
+    cmd: list[str] = field(default_factory=lambda: [])
 
     def to_cmd(self) -> list[str]:
         args: list[str] = ["docker", "run", "--rm", "-it"]
@@ -237,16 +242,16 @@ class DockerRunCommand:
             args.append(f"--name={self.name}")
 
         args.append(IMAGE_NAME)
+        args.extend(self.cmd)
 
         return args
 
 
 @dataclass
 class ListOptions:
-    project_root: Path
+    project_id: str | None
     format: str | None
     quiet: bool
-    all: bool
 
 
 @dataclass
@@ -254,15 +259,14 @@ class DockerListCommand:
     project_root: Path | None
     format: str | None
     quiet: bool
-    all: bool
 
     def to_cmd(self) -> list[str]:
         args: list[str] = ["docker", "ps"]
 
         args.extend(["--filter", f"label=runner={PROG_NAME}"])
 
-        if self.project_root is not None:
-            args.extend(["--filter", f"label=project-root={self.project_root}"])
+        if self.project_id is not None:
+            args.extend(["--filter", f"label=project-name={self.project_id}"])
 
         # List exited containers if for some reason they were not cleaned up.
         args.append("--all")
@@ -426,6 +430,15 @@ def update_docker_with_pass(docker: DockerRunCommand, opts: RunOptions):
             )
         )
 
+        docker.mounts.append(
+            mount_to_mount(
+                project_root=HOME,
+                remote_root=HOME_DEST,
+                path=HOME / ".codex" / "config.toml",
+                write=False
+            )
+        )
+
 
 def update_docker_no_pass(docker: DockerRunCommand, opts: RunOptions):
     if opts.agent_opts.claude:
@@ -436,15 +449,14 @@ def update_docker_no_pass(docker: DockerRunCommand, opts: RunOptions):
             claude / "settings.json",
         ]
 
-        # Allow skip perms as root.
-        docker.env_vars.append(f"IS_SANDBOX=1")
-
         for item in write_items:
             docker.mounts.append(mount_to_mount(HOME, HOME_DEST, item, True))
 
     if opts.agent_opts.codex:
         auth = HOME / ".codex" / "auth.json"
+        config = HOME / ".codex" / "config.toml"
         docker.mounts.append(mount_to_mount(HOME, HOME_DEST, auth, False))
+        docker.mounts.append(mount_to_mount(HOME, HOME_DEST, config, False))
 
 
 def cmd_run(opts: RunOptions):
@@ -461,6 +473,10 @@ def cmd_run(opts: RunOptions):
         update_docker_with_pass(docker, opts)
     else:
         update_docker_no_pass(docker, opts)
+
+    # Allow --dangerously-skip-permissions with root.
+    if opts.agent_opts.claude:
+        docker.env_vars.append(f"IS_SANDBOX=1")
 
     docker.labels.append(f"project-root={docker.project_root}")
 
@@ -515,15 +531,20 @@ def cmd_run(opts: RunOptions):
         )
     )
 
+    if len(opts.exec) > 0:
+        if not opts.raw_exec:
+            docker.cmd.extend(["/bin/zsh", "-ic", shlex.join(opts.exec)])
+        else:
+            docker.cmd.extend(opts.exec)
+
     exec_replace(docker.to_cmd())
 
 
 def cmd_list(list_opts: ListOptions):
     docker = DockerListCommand(
-        project_root=list_opts.project_root if not list_opts.all else None,
+        project_id=list_opts.project_id,
         format=list_opts.format,
         quiet=list_opts.quiet,
-        all=list_opts.all,
     )
 
     exec_replace(docker.to_cmd())
