@@ -17,8 +17,10 @@ PROG_NAME = "dev-shell"
 DEFAULT_IMAGE_NAME = "nodech/dev-env"
 IMAGE_NAME = os.environ.get("DOCKER_IMAGE") or DEFAULT_IMAGE_NAME
 
+
 def label(name: str) -> str:
-    return f'{{{{.Label "{name}"}}}}'
+    return "{{" + f'.Label "{name}"' + "}}"
+
 
 COLUMNS = [
     "{{.ID}}",
@@ -26,6 +28,7 @@ COLUMNS = [
     "{{.Status}}",
     label("project-name"),
     label("agents"),
+    label("project-id"),
     label("project-root"),
 ]
 
@@ -171,6 +174,7 @@ class RunOptions:
     raw_exec: bool = False
     name: str | None = None
     project_name: str | None = None
+    project_id: str | None = None
     pass_theme: bool = True
     pass_passstore: bool = True
 
@@ -259,6 +263,7 @@ class DockerRunCommand:
 @dataclass
 class ListOptions:
     project_id: ProjectStorageName | None
+    project_name: str | None
     format: str | None
     quiet: bool
 
@@ -266,6 +271,7 @@ class ListOptions:
 @dataclass
 class DockerListCommand:
     project_id: ProjectStorageName | None
+    project_name: str | None
     format: str | None
     quiet: bool
 
@@ -275,7 +281,10 @@ class DockerListCommand:
         args.extend(["--filter", f"label=runner={PROG_NAME}"])
 
         if self.project_id is not None:
-            args.extend(["--filter", f"label=project-name={self.project_id}"])
+            args.extend(["--filter", f"label=project-id={self.project_id}"])
+
+        if self.project_name is not None:
+            args.extend(["--filter", f"label=project-name={self.project_name}"])
 
         # List exited containers if for some reason they were not cleaned up.
         args.append("--all")
@@ -408,9 +417,11 @@ def update_docker_with_pass(docker: DockerRunCommand, opts: RunOptions):
     )
 
     if opts.agent_opts.claude:
-        raise Exception("Claude and pass are not compatible."
+        raise Exception(
+            "Claude and pass are not compatible."
             + " Once they open source it maybe we can do something."
-            + " Use --no-pass with it.")
+            + " Use --no-pass with it."
+        )
 
         docker.env_vars.append("PASS_CLAUDE=dev-env/claude")
         docker.mounts.append(
@@ -448,7 +459,7 @@ def update_docker_with_pass(docker: DockerRunCommand, opts: RunOptions):
                 project_root=HOME,
                 remote_root=HOME_DEST,
                 path=HOME / ".codex" / "config.toml",
-                write=False
+                write=False,
             )
         )
 
@@ -494,11 +505,17 @@ def cmd_run(opts: RunOptions):
     docker.labels.append(f"project-root={docker.project_root}")
 
     project_id = project_storage_name(docker.project_root)
+    project_name = project_id.name
 
     if opts.project_name:
+        project_name = opts.project_name
         project_id = opts.project_name
 
-    docker.labels.append(f"project-name={project_id}")
+    if opts.project_id:
+        project_id = opts.project_id
+
+    docker.labels.append(f"project-name={project_name}")
+    docker.labels.append(f"project-id={project_id}")
 
     if opts.agent_opts.sessions:
         if opts.agent_opts.claude:
@@ -556,6 +573,7 @@ def cmd_run(opts: RunOptions):
 def cmd_list(list_opts: ListOptions):
     docker = DockerListCommand(
         project_id=list_opts.project_id,
+        project_name=list_opts.project_name,
         format=list_opts.format,
         quiet=list_opts.quiet,
     )
@@ -617,7 +635,13 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     p_run.add_argument(
         "-p",
         "--project",
-        help="Assign a custom project label to the container.",
+        help="Assign a custom project name to the container.",
+    )
+
+    p_run.add_argument(
+        "-i",
+        "--project-id",
+        help="Assign a custom project id to the container.",
     )
 
     p_run.add_argument(
@@ -731,16 +755,18 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     )
 
     # Root will always take precedence.
+    p_list.add_argument("--root", help="Project root to filter by")
+
     p_list.add_argument(
-        "--root",
-        help="Project root to filter by"
+        "-i",
+        "--project-id",
+        help="Find containers with project id.",
     )
 
     p_list.add_argument(
         "-p",
         "--project",
-        nargs="?",
-        help="Find containers with project id."
+        help="Find containers with project name.",
     )
 
     p_list.add_argument(
@@ -796,11 +822,13 @@ def main():
             )
 
             # Everything after -- will become a cmd.
-            exec_cmd_idx = next((idx for idx, arg in enumerate(args.exec) if arg == "--"), None)
+            exec_cmd_idx = next(
+                (idx for idx, arg in enumerate(args.exec) if arg == "--"), None
+            )
             exec_cmd = []
 
             if exec_cmd_idx is not None:
-                exec_cmd = args.exec[exec_cmd_idx + 1:]
+                exec_cmd = args.exec[exec_cmd_idx + 1 :]
 
             run_opts = RunOptions(
                 exec=exec_cmd,
@@ -809,6 +837,7 @@ def main():
                 agent_opts=agent_opts,
                 name=args.name or None,
                 project_name=args.project or None,
+                project_id=args.project_id or None,
                 pass_theme=not args.no_theme,
                 pass_passstore=not args.no_pass,
             )
@@ -842,12 +871,18 @@ def main():
             cmd_attach(attach_options)
 
         case "list" | "ls":
+            project_name = None
+
+            # Priorities
             if args.all:
                 project_id = None
             elif args.root:
                 project_id = project_storage_name(Path(args.root))
+            elif args.project_id:
+                project_id = args.project_id
             elif args.project:
-                project_id = args.project
+                project_id = None
+                project_name = args.project
             elif project_root:
                 project_id = project_storage_name(project_root)
             else:
@@ -855,6 +890,7 @@ def main():
 
             list_opts = ListOptions(
                 project_id=project_id,
+                project_name=project_name,
                 format=args.format or DEFAULT_FORMAT,
                 quiet=args.quiet,
             )
