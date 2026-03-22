@@ -464,11 +464,16 @@ def cmd_run(opts: RunOptions):
 
     docker.labels.append(f"project-root={docker.project_root}")
 
-    if opts.agent_opts.sessions:
-        local_project_name = project_storage_name(docker.project_root)
+    project_id = project_storage_name(docker.project_root)
 
+    if opts.project_name:
+        project_id = opts.project_name
+
+    docker.labels.append(f"project-name={project_id}")
+
+    if opts.agent_opts.sessions:
         if opts.agent_opts.claude:
-            local_claude_dir = LOCAL_CLAUDE_SESSIONS / local_project_name
+            local_claude_dir = LOCAL_CLAUDE_SESSIONS / project_id
             local_claude_dir.mkdir(parents=True, exist_ok=True)
             docker.mounts.append(
                 MountDir(
@@ -479,7 +484,7 @@ def cmd_run(opts: RunOptions):
             )
 
         if opts.agent_opts.codex:
-            local_codex_dir = LOCAL_CODEX_SESSIONS / local_project_name
+            local_codex_dir = LOCAL_CODEX_SESSIONS / project_id
             local_codex_dir.mkdir(parents=True, exist_ok=True)
             docker.mounts.append(
                 MountDir(
@@ -573,6 +578,12 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
         "-n",
         "--name",
         help="Assign a name to the container",
+    )
+
+    p_run.add_argument(
+        "-p",
+        "--project",
+        help="Assign a custom project label to the container.",
     )
 
     p_run.add_argument(
@@ -672,6 +683,12 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
         help="Do not limit results to the project root",
     )
 
+    # Root will always take precedence.
+    p_list.add_argument(
+        "--root",
+        help="Project root to filter by"
+    )
+
     p_list.add_argument(
         "--root", default=project_root, help="Project root to filter by"
     )
@@ -732,6 +749,7 @@ def main():
                 mount_opts=mount_opts,
                 agent_opts=agent_opts,
                 name=args.name or None,
+                project_name=args.project or None,
                 pass_theme=not args.no_theme,
                 pass_passstore=not args.no_pass,
             )
@@ -765,12 +783,23 @@ def main():
             cmd_attach(attach_options)
 
         case "list" | "ls":
+            if args.all:
+                project_id = None
+            elif args.root:
+                project_id = project_storage_name(Path(args.root))
+            elif args.project:
+                project_id = args.project
+            elif project_root:
+                project_id = project_storage_name(project_root)
+            else:
+                project_id = project_storage_name(CWD)
+
             list_opts = ListOptions(
-                project_root=args.root or project_root or CWD,
+                project_id=project_id,
                 format=args.format or DEFAULT_FORMAT,
                 quiet=args.quiet,
-                all=args.all,
             )
+
             cmd_list(list_opts)
         case _:
             parser.print_help()
