@@ -77,7 +77,7 @@ LOCAL_CODEX_SESSIONS = LOCAL_SHARE / "codex" / "sessions"
 DEFAULT_DEST = "/work"
 HOME_DEST = Path("/root")
 
-ATTACH_EXEC = "/usr/bin/zsh"
+ZSH_EXEC = "/bin/zsh"
 
 
 def debuglog(msg: str) -> None:
@@ -266,17 +266,18 @@ class FilterOptions:
     project_name: str | None
     project_root: Path | None
 
-    def is_none(self) -> bool:
+    def is_empty(self) -> bool:
         return (
             self.project_id is None
             and self.project_name is None
             and self.project_root is None
         )
 
-    def set_none(self):
+    def clear(self):
         self.project_name = None
         self.project_id = None
         self.project_root = None
+
 
 @dataclass
 class ListOptions:
@@ -321,30 +322,31 @@ class DockerListCommand:
 
 @dataclass
 class AttachOptions:
-    project_root: Path
-    exec: str
-    name: str | None
-    id: str | None
+    container_ref: str  # Name or ID.
+    exec: list[str]
+    raw_exec: bool = False
+    attach: bool = False
 
 
 @dataclass
 class DockerAttachCommand:
-    project_root: Path
-    exec: str
-    name: str | None
-    id: str | None
+    container_ref: str
+
+    def to_cmd(self) -> list[str]:
+        args: list[str] = ["docker", "attach"]
+        args.append(self.container_ref)
+        return args
+
+
+@dataclass
+class DockerExecCommand:
+    container_ref: str
+    cmd: list[str] = field(default_factory=lambda: [])
 
     def to_cmd(self) -> list[str]:
         args: list[str] = ["docker", "exec", "-it"]
-
-        if self.id is not None:
-            args.append(self.id)
-        else:
-            assert self.name is not None
-            args.append(self.name)
-
-        args.append(self.exec)
-
+        args.append(self.container_ref)
+        args.extend(self.cmd)
         return args
 
 
@@ -371,12 +373,18 @@ def mount_to_mount(
     return MountDir(local_path=path, remote_path=dest, write=write)
 
 
-def list_running(root: ProjectStorageName) -> list[str]:
-    docker = DockerListCommand(project_id=root, format=None, quiet=True)
+def list_running(filter_opts: FilterOptions) -> list[str]:
+    docker = DockerListCommand(
+        project_id=filter_opts.project_id,
+        project_name=filter_opts.project_name,
+        project_root=filter_opts.project_root,
+        format=None,
+        quiet=True,
+    )
 
     res = capture(docker.to_cmd())
 
-    if res is None:
+    if not res:
         return []
 
     # assert res is not None
@@ -584,7 +592,7 @@ def cmd_run(opts: RunOptions):
 
     if len(opts.exec) > 0:
         if not opts.raw_exec:
-            docker.cmd.extend(["/bin/zsh", "-ic", shlex.join(opts.exec)])
+            docker.cmd.extend([ZSH_EXEC, "-ic", shlex.join(opts.exec)])
         else:
             docker.cmd.extend(opts.exec)
 
@@ -604,12 +612,23 @@ def cmd_list(list_opts: ListOptions):
 
 
 def cmd_attach(attach_opts: AttachOptions):
-    docker = DockerAttachCommand(
-        project_root=attach_opts.project_root,
-        exec=attach_opts.exec,
-        name=attach_opts.name,
-        id=attach_opts.id,
+    if attach_opts.attach:
+        docker = DockerAttachCommand(attach_opts.container_ref)
+        exec_replace(docker.to_cmd())
+        return
+
+    docker = DockerExecCommand(
+        container_ref=attach_opts.container_ref,
     )
+
+    if not attach_opts.raw_exec:
+        docker.cmd.append(ZSH_EXEC)
+
+    if len(attach_opts.exec) > 0:
+        if not attach_opts.raw_exec:
+            docker.cmd.append("-ic")
+
+        docker.cmd.append(shlex.join(attach_opts.exec))
 
     exec_replace(docker.to_cmd())
 
@@ -635,6 +654,7 @@ def parse_mount_path(value: str, cwd: Path, project_root: Path) -> Path:
         )
 
     return p
+
 
 def build_lookup_args(parser: argparse.ArgumentParser):
     parser.add_argument("--root", help="Filter projects by root.")
@@ -766,10 +786,31 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     )
 
     p_attach.add_argument(
-        "name",
+        "container",
         nargs="?",
         default=None,
-        help="Name of the container to open a shell in",
+        help="Container name or ID to connect to directly. Overrides filters.",
+    )
+
+    build_lookup_args(p_attach)
+
+    p_attach.add_argument(
+        "--attach",
+        action="store_true",
+        help="Attach directly to the container's primary process instead of starting a shell.",
+    )
+
+    p_attach.add_argument(
+        "exec",
+        nargs=argparse.REMAINDER,
+        help="Pass the cmd to execute on attach.",
+    )
+
+    p_attach.add_argument(
+        "-r",
+        "--raw",
+        action="store_true",
+        help="Do not nest cmd inside zsh",
     )
 
     # dev-shell list
@@ -806,16 +847,16 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
 def parse_filter_opts(
     args: argparse.Namespace, project_root: Path | None, cwd: Path
 ) -> FilterOptions:
-    project_name: str | None = args.project
-    project_id: str | None = args.project_id
-    root: Path | None = args.root
-
-    if project_id is None and project_name is None and root is None:
-        root = project_root or cwd
-
-    return FilterOptions(
-        project_id=project_id, project_name=project_name, project_root=root
+    opts = FilterOptions(
+        project_name=args.project,
+        project_id=args.project_id,
+        project_root=Path(args.root) if args.root else None,
     )
+
+    if opts.is_empty():
+        opts.project_root = project_root or cwd
+
+    return opts
 
 
 def main():
@@ -883,39 +924,50 @@ def main():
 
             cmd_run(run_opts)
         case "attach":
-            attach_options = AttachOptions(
-                project_root=project_root or CWD,
-                exec=ATTACH_EXEC,
-                name=args.name,
-                id=None,
-            )
+            filter_opts = parse_filter_opts(args, project_root, CWD)
+            container_ref = args.container
 
-            if attach_options.name is None:
-                if project_root is None:
-                    die(
-                        f"Attach without --name must be run from inside a git repository: {CWD}"
-                    )
-
-                attach_options.project_root = project_root
-                running = list_running(attach_options.project_root)
+            if not container_ref:
+                running = list_running(filter_opts)
 
                 if len(running) == 0:
-                    die("No running containers found for this project root.")
+                    die("No running containers found.")
 
                 if len(running) > 1:
                     die(f"Cannot choose between {len(running)} running containers.")
 
-                attach_options.id = running[0]
+                container_ref = running[0]
+                assert container_ref
+
+            must_attach = args.attach
+
+            # Everything after -- will become a cmd.
+            exec_cmd_idx = next(
+                (idx for idx, arg in enumerate(args.exec) if arg == "--"), None
+            )
+
+            exec_cmd = []
+
+            if exec_cmd_idx is not None:
+                exec_cmd = args.exec[exec_cmd_idx + 1 :]
+
+            if must_attach and (len(exec_cmd) > 0 or args.raw):
+                die("Can not specify exec command with attach.")
+
+            attach_options = AttachOptions(
+                container_ref=container_ref,
+                exec=exec_cmd,
+                raw_exec=args.raw,
+                attach=must_attach,
+            )
 
             cmd_attach(attach_options)
 
         case "list" | "ls":
-            filter_opts: FilterOptions = parse_filter_opts(
-                args, project_root, CWD
-            )
+            filter_opts: FilterOptions = parse_filter_opts(args, project_root, CWD)
 
             if args.all:
-                filter_opts.set_none()
+                filter_opts.clear()
 
             list_opts = ListOptions(
                 filter_opts=filter_opts,
