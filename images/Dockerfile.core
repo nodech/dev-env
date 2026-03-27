@@ -9,6 +9,7 @@ pacman -Syu --noconfirm
 pacman -S --noconfirm \
   base-devel \
   bat \
+  bubblewrap \
   bun \
   ccache \
   curl \
