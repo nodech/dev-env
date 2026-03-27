@@ -261,17 +261,35 @@ class DockerRunCommand:
 
 
 @dataclass
-class ListOptions:
-    project_id: ProjectStorageName | None
+class FilterOptions:
+    project_id: str | None
     project_name: str | None
+    project_root: Path | None
+
+    def is_none(self) -> bool:
+        return (
+            self.project_id is None
+            and self.project_name is None
+            and self.project_root is None
+        )
+
+    def set_none(self):
+        self.project_name = None
+        self.project_id = None
+        self.project_root = None
+
+@dataclass
+class ListOptions:
+    filter_opts: FilterOptions
     format: str | None
     quiet: bool
 
 
 @dataclass
 class DockerListCommand:
-    project_id: ProjectStorageName | None
+    project_id: str | None
     project_name: str | None
+    project_root: Path | None
     format: str | None
     quiet: bool
 
@@ -285,6 +303,9 @@ class DockerListCommand:
 
         if self.project_name is not None:
             args.extend(["--filter", f"label=project-name={self.project_name}"])
+
+        if self.project_root is not None:
+            args.extend(["--filter", f"label=project-root={self.project_root}"])
 
         # List exited containers if for some reason they were not cleaned up.
         args.append("--all")
@@ -572,8 +593,9 @@ def cmd_run(opts: RunOptions):
 
 def cmd_list(list_opts: ListOptions):
     docker = DockerListCommand(
-        project_id=list_opts.project_id,
-        project_name=list_opts.project_name,
+        project_id=list_opts.filter_opts.project_id,
+        project_name=list_opts.filter_opts.project_name,
+        project_root=list_opts.filter_opts.project_root,
         format=list_opts.format,
         quiet=list_opts.quiet,
     )
@@ -614,6 +636,21 @@ def parse_mount_path(value: str, cwd: Path, project_root: Path) -> Path:
 
     return p
 
+def build_lookup_args(parser: argparse.ArgumentParser):
+    parser.add_argument("--root", help="Filter projects by root.")
+
+    parser.add_argument(
+        "-p",
+        "--project",
+        help="Filter projects by name.",
+    )
+
+    parser.add_argument(
+        "-i",
+        "--project-id",
+        help="Filter projects by project ID.",
+    )
+
 
 def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -641,7 +678,7 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     p_run.add_argument(
         "-i",
         "--project-id",
-        help="Assign a custom project id to the container.",
+        help="Assign a custom project ID to the container.",
     )
 
     p_run.add_argument(
@@ -742,6 +779,8 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
         help="List containers",
     )
 
+    build_lookup_args(p_list)
+
     p_list.add_argument(
         "--format",
         help="Format output using Docker's template syntax.",
@@ -754,21 +793,6 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
         help="Do not limit results to the project root",
     )
 
-    # Root will always take precedence.
-    p_list.add_argument("--root", help="Project root to filter by")
-
-    p_list.add_argument(
-        "-i",
-        "--project-id",
-        help="Find containers with project id.",
-    )
-
-    p_list.add_argument(
-        "-p",
-        "--project",
-        help="Find containers with project name.",
-    )
-
     p_list.add_argument(
         "-q",
         "--quiet",
@@ -777,6 +801,21 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def parse_filter_opts(
+    args: argparse.Namespace, project_root: Path | None, cwd: Path
+) -> FilterOptions:
+    project_name: str | None = args.project
+    project_id: str | None = args.project_id
+    root: Path | None = args.root
+
+    if project_id is None and project_name is None and root is None:
+        root = project_root or cwd
+
+    return FilterOptions(
+        project_id=project_id, project_name=project_name, project_root=root
+    )
 
 
 def main():
@@ -871,31 +910,21 @@ def main():
             cmd_attach(attach_options)
 
         case "list" | "ls":
-            project_name = None
+            filter_opts: FilterOptions = parse_filter_opts(
+                args, project_root, CWD
+            )
 
-            # Priorities
             if args.all:
-                project_id = None
-            elif args.root:
-                project_id = project_storage_name(Path(args.root))
-            elif args.project_id:
-                project_id = args.project_id
-            elif args.project:
-                project_id = None
-                project_name = args.project
-            elif project_root:
-                project_id = project_storage_name(project_root)
-            else:
-                project_id = project_storage_name(CWD)
+                filter_opts.set_none()
 
             list_opts = ListOptions(
-                project_id=project_id,
-                project_name=project_name,
+                filter_opts=filter_opts,
                 format=args.format or DEFAULT_FORMAT,
                 quiet=args.quiet,
             )
 
             cmd_list(list_opts)
+
         case _:
             parser.print_help()
             sys.exit(1)
