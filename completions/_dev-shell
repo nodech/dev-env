@@ -1,73 +1,121 @@
 #compdef dev-shell
 
-_dev-shell() {
-    local state
+_dev_shell() {
+    local curcontext="$curcontext" state line
+    typeset -A opt_args
 
-    _arguments \
-        '1: :->command' \
-        '*:: :->args'
+    _arguments -C \
+        '1:command:->command' \
+        '*::arg:->args'
 
     case $state in
         command)
             local -a commands
             commands=(
                 'run:Start a new container session'
-                'attach:Open a shell in the running container'
+                'connect:Open a shell in the running container'
                 'list:List containers'
                 'ls:List containers (alias for list)'
             )
-            _describe 'command' commands
+            _describe -t commands 'dev-shell command' commands
             ;;
         args)
-            case $words[1] in
-                run)     _dev-shell-run ;;
-                attach)  _dev-shell-attach ;;
-                list|ls) _dev-shell-list ;;
+            case $line[1] in
+                run)     _dev_shell_run ;;
+                connect) _dev_shell_connect ;;
+                list|ls) _dev_shell_list ;;
             esac
             ;;
     esac
 }
 
-_dev-shell-run() {
-    _arguments \
-        '(-n --name)'{-n,--name}'[Assign a name to the container]:name' \
+_dev_shell_run() {
+    _arguments -C -S \
+        '(-n --name)'{-n,--name}'[Assign a name to the container]:name:' \
+        '(-p --project)'{-p,--project}'[Assign a custom project name to the container.]:project name:' \
+        '(-i --project-id)'{-i,--project-id}'[Assign a custom project ID to the container.]:project id:' \
         '--no-git[Do not mount Git]' \
         '(-g --write-git)'{-g,--write-git}'[Mount Git with write access]' \
         '--skip-git-check[Skip the Git repository check]' \
         '*'{-m,--mount}'[Mount a directory as read-only]:directory:_files -/' \
         '*'{-w,--write}'[Mount a directory as writable]:directory:_files -/' \
-        '(-d --dest)'{-d,--dest}'[Mount target inside the container]:dest path' \
+        '(-d --dest)'{-d,--dest}'[Mount target inside the container]:dest path:' \
         '--no-theme[Do not forward theme-related environment variables]' \
         '--no-pass[Do not mount the pass store and GPG socket]' \
-        '--no-sessions[Do not mount the sessions/projects for the agents]' \
+        '--no-sessions[Do not mount the sessions/projects for the agents.]' \
+        '(-r --raw)'{-r,--raw}'[Do not nest cmd inside zsh]' \
         '--codex[Mount Codex credentials]' \
-        '--claude[Mount Claude credentials]'
+        '--claude[Mount Claude credentials]' \
+        '*::exec command:_dev_shell_remainder_command'
 }
 
-_dev-shell-attach() {
-    _arguments \
-        '1:container name:_dev-shell-containers'
+_dev_shell_connect() {
+    _arguments -C -S \
+        '(-c --container)'{-c,--container}'[Container name or ID to connect to directly. Overrides filters.]:container:_dev_shell_containers' \
+        '--root[Filter projects by root.]:directory:_files -/' \
+        '(-p --project)'{-p,--project}'[Filter projects by name.]:project name:_dev_shell_project_names' \
+        '(-i --project-id)'{-i,--project-id}'[Filter projects by project ID.]:project id:_dev_shell_project_ids' \
+        '--attach[Attach directly to the container primary process instead of starting a shell.]' \
+        '(-r --raw)'{-r,--raw}'[Do not nest cmd inside zsh]' \
+        '*::exec command:_dev_shell_remainder_command'
 }
 
-_dev-shell-list() {
-    _arguments \
-        '--format[Format output using Docker template syntax]:format string' \
+_dev_shell_list() {
+    _arguments -C \
+        '--root[Filter projects by root.]:directory:_files -/' \
+        '(-p --project)'{-p,--project}'[Filter projects by name.]:project name:' \
+        '(-i --project-id)'{-i,--project-id}'[Filter projects by project ID.]:project id:' \
+        '--format[Format output using Docker template syntax.]:format string:' \
         '(-a --all)'{-a,--all}'[Do not limit results to the project root]' \
-        '--root[Project root to filter by]:directory:_files -/' \
         '(-q --quiet)'{-q,--quiet}'[Display only container IDs]'
 }
 
-_dev-shell-containers() {
-    local -a containers
-    local id name root agents cstatus desc
-    while IFS=$'\t' read -r id name root agents cstatus; do
-        [[ -n "$name" ]] || continue
-        desc="$(printf '%-12s  %-20s' "$id" "(${root:t})")"
-        [[ -n "$cstatus" ]] && desc="$desc  $cstatus"
-        [[ -n "$agents" ]] && desc="$desc  [$agents]"
-        containers+=("$name:$desc")
-    done < <(dev-shell ls --all --format $'{{.ID}}\t{{.Names}}\t{{.Label "project-root"}}\t{{.Label "agents"}}\t{{.Status}}' 2>/dev/null)
-    _describe 'container' containers
+_dev_shell_remainder_command() {
+    _normal
 }
 
-_dev-shell
+_dev_shell_containers() {
+    local -a containers
+    local id name root agents container_status desc
+
+    while IFS=$'\t' read -r id name root agents container_status; do
+        [[ -n "$id" ]] || continue
+
+        desc="$container_status"
+        [[ -n "$root" ]] && desc="$desc (${root:t})"
+        [[ -n "$agents" ]] && desc="$desc [$agents]"
+
+        containers+=("$id:$desc")
+        [[ -n "$name" ]] && containers+=("$name:$desc")
+    done < <(
+        dev-shell list --all --format $'{{.ID}}\t{{.Names}}\t{{.Label "project-root"}}\t{{.Label "agents"}}\t{{.Status}}' 2>/dev/null
+    )
+
+    _describe -t containers 'container' containers
+}
+
+_dev_shell_project_names() {
+    _dev_shell_label_values 'project name' 'project-name'
+}
+
+_dev_shell_project_ids() {
+    _dev_shell_label_values 'project id' 'project-id'
+}
+
+_dev_shell_label_values() {
+    local label="$1"
+    local template_label="$2"
+    local -a values
+    local value
+
+    while IFS= read -r value; do
+        [[ -n "$value" ]] || continue
+        values+=("$value")
+    done < <(
+        dev-shell list --all --format "{{.Label \"$template_label\"}}" 2>/dev/null | awk 'NF && !seen[$0]++'
+    )
+
+    _describe -t values "$label" values
+}
+
+_dev_shell
