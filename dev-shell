@@ -765,7 +765,7 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     p_run.add_argument(
         "exec",
         nargs=argparse.REMAINDER,
-        help="Pass the cmd to run.",
+        help="Pass the cmd to run after --.",
     )
 
     p_run.add_argument(
@@ -781,14 +781,13 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
 
     # dev-shell connect
     p_connect = sub.add_parser(
-        "attach",
+        "connect",
         help="Open a shell in the running container",
     )
 
     p_connect.add_argument(
-        "container",
-        nargs="?",
-        default=None,
+        "-c",
+        "--container",
         help="Container name or ID to connect to directly. Overrides filters.",
     )
 
@@ -803,7 +802,7 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     p_connect.add_argument(
         "exec",
         nargs=argparse.REMAINDER,
-        help="Pass the cmd to execute on connect.",
+        help="Pass the cmd to execute on connect after --.",
     )
 
     p_connect.add_argument(
@@ -850,7 +849,7 @@ def parse_filter_opts(
     opts = FilterOptions(
         project_name=args.project,
         project_id=args.project_id,
-        project_root=Path(args.root) if args.root else None,
+        project_root=Path(args.root).expanduser().resolve() if args.root else None,
     )
 
     if opts.is_empty():
@@ -953,6 +952,9 @@ def main():
 
             if must_attach and (len(exec_cmd) > 0 or args.raw):
                 die("Can not specify exec command with attach.")
+
+            if args.raw and len(exec_cmd) == 0:
+                die("Can not use --raw without command to execute.")
 
             connect_options = ConnectOptions(
                 container_ref=container_ref,
