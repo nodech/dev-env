@@ -27,6 +27,7 @@ pacman -S --noconfirm \
   openssh \
   pass \
   python \
+  python-yaml \
   ripgrep \
   rsync \
   rustup \
@@ -38,7 +39,9 @@ pacman -S --noconfirm \
   tree-sitter-cli \
   wl-clipboard \
   zoxide \
-  zsh
+  zsh \
+  zsh-autosuggestions \
+  zsh-syntax-highlighting
 
 pacman -Scc --noconfirm
 EOF

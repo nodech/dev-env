@@ -3,6 +3,7 @@
 PREFIX := dev
 NAME := nodech/dev-env
 LABEL := image-project=nodech-env
+XDG_DATA_HOME := $(TARGET_DIR)/.local/share
 DEBUG :=
 DOCKER_ARGS :=
 
@@ -35,6 +36,15 @@ oh-my-zsh: $(HOME)/.oh-my-zsh/custom/completions
 
 unoh-my-zsh:
 	stow -D -v --target=$(HOME)/.oh-my-zsh/custom/completions/ completions
+
+$(XDG_DATA_HOME)/zsh/completions:
+	mkdir -p $(XDG_DATA_HOME)/zsh/completions
+
+nodzsh: $(XDG_DATA_HOME)/zsh/completions
+	stow -v --target=$(XDG_DATA_HOME)/zsh/completions/ completions
+
+unnodzsh:
+	stow -D -v --target=$(XDG_DATA_HOME)/zsh/completions/ completions
 
 clean:
 	docker rmi -f \
