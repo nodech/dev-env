@@ -28,15 +28,6 @@ $(NAME)-only:
 		--label $(LABEL) \
 		.
 
-$(HOME)/.oh-my-zsh/custom/completions:
-	@mkdir -p $(HOME)/.oh-my-zsh/custom/completions
-
-oh-my-zsh: $(HOME)/.oh-my-zsh/custom/completions
-	stow -v --target=$(HOME)/.oh-my-zsh/custom/completions/ completions
-
-unoh-my-zsh:
-	stow -D -v --target=$(HOME)/.oh-my-zsh/custom/completions/ completions
-
 $(XDG_DATA_HOME)/zsh/completions:
 	mkdir -p $(XDG_DATA_HOME)/zsh/completions
 
