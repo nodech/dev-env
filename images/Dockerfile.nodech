@@ -14,18 +14,6 @@ pacman -S --noconfirm \
 pacman -Scc --noconfirm
 EOF
 
-# Install nightly Neovim for Neovim 0.12.
-RUN <<'EOF'
-set -e
-cd $HOME
-
-curl -L https://github.com/neovim/neovim/releases/download/v0.12.0/nvim-linux-x86_64.tar.gz -O
-tar xzf $HOME/nvim-linux-x86_64.tar.gz && rm $HOME/nvim-linux-x86_64.tar.gz
-
-mkdir -p $HOME/.local/bin
-ln -s $HOME/nvim-linux-x86_64/bin/nvim $HOME/.local/bin/nvim
-EOF
-
 # Set up dotfiles
 RUN <<'EOF'
 set -e
@@ -40,7 +28,7 @@ EOF
 # Set up Neovim
 RUN <<'EOF'
 set -e
-$HOME/nvim-linux-x86_64/bin/nvim --headless -c 'qall'
+nvim --headless -c 'qall'
 
 cd $HOME/.local/share/nvim/site/pack/core/opt/blink.cmp
 cargo build --release
