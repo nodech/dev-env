@@ -25,7 +25,9 @@ pacman -S --noconfirm \
   nodejs \
   npm \
   openssh \
+  pandoc \
   pass \
+  prettier \
   python \
   python-yaml \
   ripgrep \
@@ -37,6 +39,7 @@ pacman -S --noconfirm \
   tree \
   tree-sitter \
   tree-sitter-cli \
+  w3m \
   wl-clipboard \
   zoxide \
   zsh \
