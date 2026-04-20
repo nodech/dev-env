@@ -35,6 +35,11 @@ pacman -S --noconfirm \
   rustup \
   sccache \
   stow \
+  texlive-basic \
+  texlive-fontsrecommended \
+  texlive-latex \
+  texlive-latexrecommended \
+  texlive-xetex \
   tmux \
   tree \
   tree-sitter \
