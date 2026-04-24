@@ -76,3 +76,7 @@ pi() {
 
   $PI_BIN "$@"
 }
+
+if [[ "$DOCKER_THEME" != "" ]]; then
+  chcolor.sh $DOCKER_THEME > /dev/null 2> /dev/null
+fi
