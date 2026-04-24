@@ -1,5 +1,6 @@
 CODEX_BIN=/usr/bin/codex
 CLAUDE_BIN=/usr/bin/claude
+OPENCODE_BIN=/usr/bin/opencode
 
 ensure_trust() {
   echo "$PASS_GPG_ID:6:" | gpg --import-ownertrust 2> /dev/null
@@ -9,9 +10,11 @@ TIMEOUT=20
 
 CODEX_BACKUP_PIDFILE="/tmp/.codex_backup"
 CLAUDE_BACKUP_PIDFILE="/tmp/.claude_backup"
+OPENCODE_BACKUP_PIDFILE="/tmp/.opencode_backup"
 
 CODEX_SECRET_FILE=~/.codex/auth.json
 CLAUDE_SECRET_FILE=~/.claude/.credentials.json
+OPENCODE_SECRET_FILE=~/.local/share/opencode/auth.json
 
 
 # $PID_FILE $SECRET_FILE $PASS_NAME
@@ -58,19 +61,3 @@ codex() {
 
   $CODEX_BIN "$@"
 }
-
-claude-load() {
-  load "$CLAUDE_BACKUP_PIDFILE" "$CLAUDE_SECRET_FILE" "$PASS_CLAUDE" || return 1
-}
-
-claude() {
-  if [ -n "$PASS_CLAUDE" ]; then
-    claude-load
-  fi
-
-  $CLAUDE_BIN "$@"
-}
-
-if [[ "$DOCKER_THEME" != "" ]]; then
-  chcolor.sh $DOCKER_THEME > /dev/null 2> /dev/null
-fi

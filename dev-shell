@@ -73,6 +73,7 @@ CWD = Path.cwd().resolve()
 LOCAL_SHARE = HOME / ".local" / "share" / PROG_NAME
 LOCAL_CLAUDE_SESSIONS = LOCAL_SHARE / "claude" / "projects"
 LOCAL_CODEX_SESSIONS = LOCAL_SHARE / "codex" / "sessions"
+LOCAL_OPENCODE_SESSIONS = LOCAL_SHARE / "opencode"
 
 DEFAULT_DEST = "/work"
 HOME_DEST = Path("/root")
@@ -146,6 +147,7 @@ def normalize_mounts(paths: list[Path]) -> list[Path]:
 class AgentOptions:
     codex: bool = False
     claude: bool = False
+    opencode: bool = False
     sessions: bool = True
 
 
@@ -478,7 +480,7 @@ def update_docker_with_pass(docker: DockerRunCommand, opts: RunOptions):
             mount_to_mount(
                 project_root=pass_local,
                 remote_root=pass_remote,
-                path=pass_local / "dev-env" / "codex.gpg",
+                path=pass_local / "dev-env/codex.gpg",
                 write=True,
             )
         )
@@ -487,7 +489,36 @@ def update_docker_with_pass(docker: DockerRunCommand, opts: RunOptions):
             mount_to_mount(
                 project_root=HOME,
                 remote_root=HOME_DEST,
-                path=HOME / ".codex" / "config.toml",
+                path=HOME / ".codex/config.toml",
+                write=False,
+            )
+        )
+
+    if opts.agent_opts.opencode:
+        docker.env_vars.append("PASS_OPENCODE=dev-env/opencode")
+        docker.mounts.append(
+            mount_to_mount(
+                project_root=pass_local,
+                remote_root=pass_remote,
+                path=pass_local / "dev-env/opencode.gpg",
+                write=True,
+            )
+        )
+
+        docker.mounts.append(
+            mount_to_mount(
+                project_root=HOME,
+                remote_root=HOME_DEST,
+                path=HOME / ".config/opencode/opencode.json",
+                write=False,
+            )
+        )
+
+        docker.mounts.append(
+            mount_to_mount(
+                project_root=HOME,
+                remote_root=HOME_DEST,
+                path=HOME / ".config/opencode/tui.json",
                 write=False,
             )
         )
@@ -506,10 +537,18 @@ def update_docker_no_pass(docker: DockerRunCommand, opts: RunOptions):
             docker.mounts.append(mount_to_mount(HOME, HOME_DEST, item, True))
 
     if opts.agent_opts.codex:
-        auth = HOME / ".codex" / "auth.json"
-        config = HOME / ".codex" / "config.toml"
-        docker.mounts.append(mount_to_mount(HOME, HOME_DEST, auth, False))
+        auth = HOME / ".codex/auth.json"
+        config = HOME / ".codex/config.toml"
+        docker.mounts.append(mount_to_mount(HOME, HOME_DEST, auth, True))
         docker.mounts.append(mount_to_mount(HOME, HOME_DEST, config, False))
+
+    if opts.agent_opts.opencode:
+        config = HOME / ".config/opencode/opencode.json"
+        tui = HOME / ".config/opencode/tui.json"
+        auth = HOME / ".local/share/opencode/auth.json"
+        docker.mounts.append(mount_to_mount(HOME, HOME_DEST, config, False))
+        docker.mounts.append(mount_to_mount(HOME, HOME_DEST, tui, False))
+        docker.mounts.append(mount_to_mount(HOME, HOME_DEST, auth, True))
 
 
 def cmd_run(opts: RunOptions):
@@ -553,7 +592,7 @@ def cmd_run(opts: RunOptions):
             docker.mounts.append(
                 MountDir(
                     local_path=local_claude_dir,
-                    remote_path=HOME_DEST / ".claude" / "projects",
+                    remote_path=HOME_DEST / ".claude/projects",
                     write=True,
                 )
             )
@@ -564,7 +603,18 @@ def cmd_run(opts: RunOptions):
             docker.mounts.append(
                 MountDir(
                     local_path=local_codex_dir,
-                    remote_path=HOME_DEST / ".codex" / "sessions",
+                    remote_path=HOME_DEST / ".codex/sessions",
+                    write=True,
+                )
+            )
+
+        if opts.agent_opts.opencode:
+            local_opencode_dir = LOCAL_OPENCODE_SESSIONS / str(project_id)
+            local_opencode_dir.mkdir(parents=True, exist_ok=True)
+            docker.mounts.append(
+                MountDir(
+                    local_path=local_opencode_dir,
+                    remote_path=HOME_DEST / ".local/share/opencode",
                     write=True,
                 )
             )
@@ -574,6 +624,8 @@ def cmd_run(opts: RunOptions):
         agents.append("claude")
     if opts.agent_opts.codex:
         agents.append("codex")
+    if opts.agent_opts.opencode:
+        agents.append("opencode")
     if agents:
         docker.labels.append(f"agents={','.join(agents)}")
 
@@ -778,6 +830,9 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     # These mounts expose local credentials because the tools do not provide safer alternatives.
     p_run.add_argument("--codex", action="store_true", help="Mount Codex credentials")
     p_run.add_argument("--claude", action="store_true", help="Mount Claude credentials")
+    p_run.add_argument(
+        "--opencode", action="store_true", help="Mount OpenCode credentials"
+    )
 
     # dev-shell connect
     p_connect = sub.add_parser(
@@ -897,7 +952,10 @@ def main():
             mount_opts.add_git(has_git_repo and not args.no_git, args.write_git)
 
             agent_opts = AgentOptions(
-                claude=args.claude, codex=args.codex, sessions=not args.no_sessions
+                claude=args.claude,
+                codex=args.codex,
+                opencode=args.opencode,
+                sessions=not args.no_sessions,
             )
 
             # Everything after -- will become a cmd.

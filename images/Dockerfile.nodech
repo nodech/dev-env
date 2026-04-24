@@ -5,6 +5,7 @@ FROM nodech/dev-core:latest
 RUN <<'EOF'
 set -e
 npm install -g @anthropic-ai/claude-code
+npm install -g @mariozechner/pi-coding-agent
 npm cache clean --force
 
 pacman -S --noconfirm \
