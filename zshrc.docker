@@ -80,3 +80,6 @@ pi() {
 if [[ "$DOCKER_THEME" != "" ]]; then
   chcolor.sh $DOCKER_THEME > /dev/null 2> /dev/null
 fi
+
+# Enforce osc52.
+export NVIM_USE_OSC52 = "1"
