@@ -1,6 +1,7 @@
 CODEX_BIN=/usr/bin/codex
 CLAUDE_BIN=/usr/bin/claude
 OPENCODE_BIN=/usr/bin/opencode
+PI_BIN=/usr/bin/pi
 
 ensure_trust() {
   echo "$PASS_GPG_ID:6:" | gpg --import-ownertrust 2> /dev/null
@@ -11,10 +12,12 @@ TIMEOUT=20
 CODEX_BACKUP_PIDFILE="/tmp/.codex_backup"
 CLAUDE_BACKUP_PIDFILE="/tmp/.claude_backup"
 OPENCODE_BACKUP_PIDFILE="/tmp/.opencode_backup"
+PI_BACKUP_PIDFILE="/tmp/.pi_backup"
 
 CODEX_SECRET_FILE=~/.codex/auth.json
 CLAUDE_SECRET_FILE=~/.claude/.credentials.json
 OPENCODE_SECRET_FILE=~/.local/share/opencode/auth.json
+PI_SECRET_FILE=~/.pi/agent/auth.json
 
 
 # $PID_FILE $SECRET_FILE $PASS_NAME
@@ -60,4 +63,16 @@ codex() {
   fi
 
   $CODEX_BIN "$@"
+}
+
+pi-load() {
+  load "$PI_BACKUP_PIDFILE" "$PI_SECRET_FILE" "$PASS_PI" || return 1
+}
+
+pi() {
+  if [ -n "$PASS_PI" ]; then
+    pi-load
+  fi
+
+  $PI_BIN "$@"
 }

@@ -74,6 +74,7 @@ LOCAL_SHARE = HOME / ".local" / "share" / PROG_NAME
 LOCAL_CLAUDE_SESSIONS = LOCAL_SHARE / "claude" / "projects"
 LOCAL_CODEX_SESSIONS = LOCAL_SHARE / "codex" / "sessions"
 LOCAL_OPENCODE_SESSIONS = LOCAL_SHARE / "opencode"
+LOCAL_PI_SESSIONS = LOCAL_SHARE / "pi"
 
 DEFAULT_DEST = "/work"
 HOME_DEST = Path("/root")
@@ -148,6 +149,7 @@ class AgentOptions:
     codex: bool = False
     claude: bool = False
     opencode: bool = False
+    pi: bool = False
     sessions: bool = True
 
 
@@ -495,6 +497,7 @@ def update_docker_with_pass(docker: DockerRunCommand, opts: RunOptions):
         )
 
     if opts.agent_opts.opencode:
+        raise Exception("Opencode and pass are not compatible.")
         docker.env_vars.append("PASS_OPENCODE=dev-env/opencode")
         docker.mounts.append(
             mount_to_mount(
@@ -519,6 +522,26 @@ def update_docker_with_pass(docker: DockerRunCommand, opts: RunOptions):
                 project_root=HOME,
                 remote_root=HOME_DEST,
                 path=HOME / ".config/opencode/tui.json",
+                write=False,
+            )
+        )
+
+    if opts.agent_opts.pi:
+        docker.env_vars.append("PASS_PI=dev-env/pi")
+        docker.mounts.append(
+            mount_to_mount(
+                project_root=pass_local,
+                remote_root=pass_remote,
+                path=pass_local / "dev-env/pi.gpg",
+                write=True,
+            )
+        )
+
+        docker.mounts.append(
+            mount_to_mount(
+                project_root=HOME,
+                remote_root=HOME_DEST,
+                path=HOME / ".pi/agent/settings.json",
                 write=False,
             )
         )
@@ -548,6 +571,12 @@ def update_docker_no_pass(docker: DockerRunCommand, opts: RunOptions):
         auth = HOME / ".local/share/opencode/auth.json"
         docker.mounts.append(mount_to_mount(HOME, HOME_DEST, config, False))
         docker.mounts.append(mount_to_mount(HOME, HOME_DEST, tui, False))
+        docker.mounts.append(mount_to_mount(HOME, HOME_DEST, auth, True))
+
+    if opts.agent_opts.pi:
+        auth = HOME / ".pi/agent/auth.json"
+        settings = HOME / ".pi/agent/auth.json"
+        docker.mounts.append(mount_to_mount(HOME, HOME_DEST, settings, False))
         docker.mounts.append(mount_to_mount(HOME, HOME_DEST, auth, True))
 
 
@@ -619,6 +648,17 @@ def cmd_run(opts: RunOptions):
                 )
             )
 
+        if opts.agent_opts.pi:
+            local_pi_dir = LOCAL_PI_SESSIONS / str(project_id)
+            local_pi_dir.mkdir(parents=True, exist_ok=True)
+            docker.mounts.append(
+                MountDir(
+                    local_path=local_pi_dir,
+                    remote_path=HOME_DEST / ".pi/agent/sessions",
+                    write=True,
+                )
+            )
+
     agents = []
     if opts.agent_opts.claude:
         agents.append("claude")
@@ -626,6 +666,8 @@ def cmd_run(opts: RunOptions):
         agents.append("codex")
     if opts.agent_opts.opencode:
         agents.append("opencode")
+    if opts.agent_opts.pi:
+        agents.append("pi")
     if agents:
         docker.labels.append(f"agents={','.join(agents)}")
 
@@ -833,6 +875,7 @@ def build_parser(project_root: Path, cwd: Path) -> argparse.ArgumentParser:
     p_run.add_argument(
         "--opencode", action="store_true", help="Mount OpenCode credentials"
     )
+    p_run.add_argument("--pi", action="store_true", help="Mount PI credentials")
 
     # dev-shell connect
     p_connect = sub.add_parser(
@@ -955,6 +998,7 @@ def main():
                 claude=args.claude,
                 codex=args.codex,
                 opencode=args.opencode,
+                pi=args.pi,
                 sessions=not args.no_sessions,
             )
 
