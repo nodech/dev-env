@@ -82,4 +82,4 @@ if [[ "$DOCKER_THEME" != "" ]]; then
 fi
 
 # Enforce osc52.
-export NVIM_USE_OSC52 = "1"
+export NVIM_USE_OSC52="1"
