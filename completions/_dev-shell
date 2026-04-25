@@ -46,6 +46,8 @@ _dev_shell_run() {
         '(-r --raw)'{-r,--raw}'[Do not nest cmd inside zsh]' \
         '--codex[Mount Codex credentials]' \
         '--claude[Mount Claude credentials]' \
+        '--opencode[Mount OpenCode credentials]' \
+        '--pi[Mount PI credentials]' \
         '*::exec command:_dev_shell_remainder_command'
 }
 

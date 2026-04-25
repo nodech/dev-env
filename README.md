@@ -29,6 +29,9 @@ Without `--`, `run` starts the default shell and `connect` opens `zsh` in the ta
 
 - `run` expects to be launched from inside a Git repository unless `--skip-git-check` is set.
 - Extra `--mount` and `--write` paths must exist and must stay inside the project root.
+- Agent credentials are only mounted when you opt into them with `--claude`, `--codex`, `--opencode`, or `--pi`.
+- `--claude` and `--opencode` currently do not support `--pass`; use them with `--no-pass`.
+- `--no-sessions` disables the per-project session mounts normally created for enabled agents.
 - `list` defaults to the current project root when no explicit filters are provided.
 - `connect` auto-selects the only matching running container; if multiple match, pass `--container` or add filters.
 
@@ -55,7 +58,7 @@ options:
 usage: dev-shell run [-h] [-n NAME] [-p PROJECT] [-i PROJECT_ID] [--no-git]
                      [-g] [--skip-git-check] [-m DIR] [-w DIR] [-d DEST]
                      [--no-theme] [--no-pass] [--no-sessions] [-r] [--codex]
-                     [--claude]
+                     [--claude] [--opencode] [--pi]
                      ...
 
 positional arguments:
@@ -80,6 +83,8 @@ options:
   -r, --raw             Do not nest cmd inside zsh
   --codex               Mount Codex credentials
   --claude              Mount Claude credentials
+  --opencode            Mount OpenCode credentials
+  --pi                  Mount PI credentials
 ```
 
 ## `connect --help`
